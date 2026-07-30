@@ -1,0 +1,2858 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>コーヒー記録アプリ プロトタイプ</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<meta name="theme-color" content="#12141c" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Brew Log" />
+<style>
+  /* Design direction: "紺と金" (Indigo & Gold) — committed as the single fixed
+     theme (not toggled by light/dark preference).
+     Tokens live on :root (not .viz-root) so ancestors like <body> can read
+     them too — a child selector's custom properties don't cascade upward. */
+  :root {
+    color-scheme: dark; /* native selects/date-pickers/checkboxes render dark too */
+    --surface-1:      #1a1d28;
+    --surface-2:      #232734;
+    --page-plane:     #12141c;
+    --text-primary:   #edeef2;
+    --text-secondary: #979dab;
+    --text-muted:     #6e7383;
+    --gridline:       #2a2e3b;
+    --border:         rgba(237,238,242,0.14);
+
+    --brand:          #c9a15f; /* Indigo & Gold accent */
+    --brand-tint:     #332c1a;
+
+    --status-good:     #3fb63f;
+    --status-warning:  #fab219;
+    --status-serious:  #ec835a;
+    --status-critical: #e15a5a;
+
+    --font-display: "Yu Mincho", "Hiragino Mincho ProN", "Noto Serif JP", serif;
+    --font-body:    "Yu Gothic", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Segoe UI", sans-serif;
+    --font-mono:    "Cascadia Code", "SF Mono", "Consolas", monospace;
+
+    /* Flavor wheel categorical palette — identity color, separate from --brand */
+    --series-floral:   #3987e5;
+    --series-fruity:   #199e70;
+    --series-sour:     #c98500;
+    --series-green:    #008300;
+    --series-roasted:  #9085e9;
+    --series-spices:   #e66767;
+    --series-nutty:    #d55181;
+    --series-sweet:    #d95926;
+    --series-other:    #85806f;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font-family: var(--font-body);
+    background: var(--page-plane);
+    color: var(--text-primary);
+  }
+  .viz-root { min-height: 100vh; }
+
+  .app-shell {
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* ---------- Sidebar (desktop) ---------- */
+  .sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    background: var(--surface-1);
+    border-right: 1px solid var(--border);
+    padding: 20px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .brand-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-display);
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--brand);
+    padding: 0 12px 20px;
+  }
+  .brand-title .icon svg { width: 21px; height: 21px; }
+  .nav-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    text-align: left;
+    width: 100%;
+  }
+  .icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    flex-shrink: 0;
+  }
+  .icon svg { width: 18px; height: 18px; display: block; }
+  .nav-link:hover { background: var(--page-plane); }
+  .nav-link[aria-current="page"] {
+    background: var(--brand-tint);
+    color: var(--brand);
+    font-weight: 600;
+  }
+
+  /* ---------- Main content ---------- */
+  .main-content {
+    flex: 1;
+    min-width: 0; /* let flex-basis:0% actually shrink below content min-size */
+    padding: 24px 24px 96px;
+    max-width: 1000px;
+  }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  h1.page-title { font-family: var(--font-display); font-size: 21px; margin: 0 0 4px; }
+  p.page-subtitle { font-size: 13px; color: var(--text-secondary); margin: 0 0 20px; }
+  .view-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .view-header-row .primary-btn { flex-shrink: 0; }
+
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+  }
+
+  /* ---------- Dashboard ---------- */
+  .stat-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat-tile { padding: 14px 16px; }
+  .stat-label { font-size: 12px; color: var(--text-muted); margin: 0 0 6px; }
+  .stat-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 700; }
+  .stat-value .unit { font-size: 13px; font-weight: 400; color: var(--text-secondary); margin-left: 2px; }
+
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 16px;
+  }
+  .section-title { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin: 0 0 12px; }
+
+  .brew-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--gridline);
+    font-size: 13px;
+  }
+  .brew-row:last-child { border-bottom: none; }
+  .brew-method-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--brand-tint);
+    color: var(--brand);
+  }
+
+  .bean-alert {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--gridline);
+    font-size: 13px;
+  }
+  .bean-alert:last-child { border-bottom: none; }
+  .badge-warning {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--status-warning) 20%, transparent);
+    color: var(--status-warning);
+  }
+
+  .sparkline-wrap { margin-top: 14px; }
+  .sparkline-value { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+
+  .primary-btn {
+    background: var(--brand);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .primary-btn:hover { opacity: 0.9; }
+  .fab {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    z-index: 5;
+  }
+
+  /* ---------- Form ---------- */
+  .form-section { margin-bottom: 22px; }
+  .form-section h2 { font-size: 14px; margin: 0 0 12px; }
+  .field-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .field[hidden] { display: none; } /* .field's display:flex otherwise beats the [hidden] UA rule */
+  .field label { font-size: 12px; color: var(--text-secondary); }
+  .field input, .field select, .field textarea {
+    font-family: inherit;
+    font-size: 14px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-primary);
+    resize: vertical;
+  }
+
+  .star-rating { display: flex; gap: 4px; }
+  .star-btn {
+    background: none;
+    border: none;
+    padding: 2px;
+    font-size: 26px;
+    line-height: 1;
+    color: var(--border);
+    cursor: pointer;
+  }
+  .star-btn.filled { color: var(--brand); }
+
+  .quick-extra-field {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+  }
+  .quick-extra-field .field { flex: 1; }
+  .quick-extra-field .icon-btn { margin-bottom: 1px; }
+
+  /* ---------- Toast ---------- */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(8px);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 10px 18px;
+    border-radius: 4px;
+    font-size: 13px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 100;
+  }
+  .toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ---------- Brew detail modal ---------- */
+  .detail-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 10px 0 2px;
+  }
+  .detail-section-title:first-child { margin-top: 0; }
+  .detail-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--gridline);
+    font-size: 13px;
+  }
+  .detail-row .detail-label { color: var(--text-secondary); flex-shrink: 0; }
+  .detail-row .detail-value { text-align: right; word-break: break-word; }
+  .detail-row .detail-value.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .detail-flavor-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 7px 0; }
+  .secondary-btn.danger:hover { color: var(--status-critical); border-color: var(--status-critical); }
+
+  .history-table tbody tr { cursor: pointer; }
+  .history-table tbody tr:hover td { background: var(--surface-2); }
+  .brew-row { cursor: pointer; }
+  .draft-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--text-muted) 20%, transparent);
+    color: var(--text-secondary);
+    margin-left: 6px;
+  }
+  .recipe-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--gridline);
+  }
+  .recipe-toolbar select {
+    font-size: 13px;
+    padding: 7px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-primary);
+    flex: 1 1 220px;
+    min-width: 180px;
+  }
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    padding: 0;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .icon-btn:hover { color: var(--status-critical); border-color: var(--status-critical); }
+  .icon-btn .icon svg { width: 16px; height: 16px; }
+
+  .method-tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .method-tab {
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .method-tab[aria-pressed="true"] {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: #fff;
+  }
+  .method-group { display: none; }
+  .method-group.active { display: block; }
+
+  .pour-table {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .pour-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface-2);
+  }
+  .pour-row .pour-index {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    width: 44px;
+    flex-shrink: 0;
+    padding-bottom: 6px;
+  }
+  .pour-field { display: flex; flex-direction: column; gap: 2px; }
+  .pour-field label { font-size: 10px; color: var(--text-muted); }
+  .pour-field input[type="number"] {
+    width: 76px;
+    font-size: 13px;
+    padding: 5px 6px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    color: var(--text-primary);
+  }
+  .pour-start-label {
+    display: inline-flex;
+    align-items: center;
+    height: 30px;
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .pour-field.pour-memo { flex: 1; min-width: 140px; }
+  .pour-field.pour-memo input {
+    width: 100%;
+    font-size: 11px;
+    padding: 5px 6px;
+    border-radius: 6px;
+    border: 1px dashed var(--border);
+    background: transparent;
+    color: var(--text-muted);
+  }
+
+  .yield-result {
+    margin-top: 10px;
+    padding: 12px 14px;
+    border-radius: 4px;
+    background: var(--brand-tint);
+    color: var(--brand);
+    font-size: 13px;
+    display: flex;
+    gap: 24px;
+  }
+  .yield-result b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 16px; }
+
+  .wbrc-axis { margin-bottom: 14px; }
+  .wbrc-axis-head {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    margin-bottom: 4px;
+  }
+  .wbrc-axis-head b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--brand); }
+  input[type="range"] { width: 100%; accent-color: var(--brand); }
+  .wbrc-total {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .flavor-link-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 4px;
+    border: 1px dashed var(--border);
+    background: var(--surface-2);
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .flavor-notes-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 32px;
+    margin-top: 12px;
+  }
+  .flavor-note-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    color: #ffffff;
+  }
+  .flavor-note-chip button {
+    all: unset;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+  }
+  .flavor-notes-empty-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 6px 0 0;
+  }
+
+  /* ---------- Flavor wheel modal ---------- */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(8,6,4,0.65);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    z-index: 50;
+  }
+  .modal-overlay[hidden] { display: none; }
+  .modal-box {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 24px;
+    max-width: 940px;
+    width: 100%;
+    max-height: 88vh;
+    overflow-y: auto;
+  }
+  .modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .modal-head h2 {
+    font-family: var(--font-display);
+    font-size: 18px;
+    margin: 0;
+  }
+  .modal-close {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 16px;
+    line-height: 1;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .modal-close:hover { background: var(--page-plane); }
+  .modal-body {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  .modal-foot {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .wheel-panel {
+    background: var(--page-plane);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    flex: 1 1 420px;
+    min-width: 300px;
+  }
+  .wheel-panel .subtitle {
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    margin: 0 0 12px;
+  }
+  .wheel-panel svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .side-panel {
+    background: var(--page-plane);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    flex: 1 1 280px;
+    min-width: 240px;
+  }
+  .fw-section-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    margin: 0 0 8px;
+  }
+  .fw-arc {
+    cursor: pointer;
+    stroke: var(--page-plane);
+    stroke-width: 2px;
+  }
+  .fw-ring1-label {
+    font-size: 13px;
+    font-weight: 600;
+    fill: #ffffff;
+    pointer-events: none;
+    text-anchor: middle;
+    dominant-baseline: middle;
+  }
+  .fw-example-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    margin: 0 6px 6px 0;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    color: var(--text-primary);
+    font-size: 13px;
+    cursor: pointer;
+    min-height: 32px;
+  }
+  .fw-example-chip:hover { border-color: var(--text-secondary); }
+  .fw-example-chip.selected {
+    background: var(--chip-color, var(--series-fruity));
+    color: #ffffff;
+    border-color: transparent;
+  }
+  .fw-tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: var(--text-primary);
+    color: var(--surface-1);
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    opacity: 0;
+    transform: translate(-50%, -130%);
+    white-space: nowrap;
+    z-index: 60;
+    transition: opacity 0.1s ease;
+  }
+  .fw-tooltip.visible { opacity: 1; }
+
+  .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 24px;
+  }
+  .secondary-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    border-radius: 4px;
+    padding: 10px 16px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  /* ---------- Settings ---------- */
+  .settings-group { margin-bottom: 22px; }
+  .settings-group h2 { font-size: 14px; margin: 0 0 4px; }
+  .settings-group .group-hint { font-size: 12px; color: var(--text-muted); margin: 0 0 12px; }
+  .preset-row { display: flex; gap: 8px; margin-bottom: 20px; }
+  .toggle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--gridline);
+  }
+  .toggle-row:last-child { border-bottom: none; }
+  .toggle-row-text .toggle-label { font-size: 14px; font-weight: 600; }
+  .toggle-row-text .toggle-desc { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+  .toggle-switch {
+    position: relative;
+    width: 42px;
+    height: 24px;
+    flex-shrink: 0;
+  }
+  .toggle-switch input {
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    cursor: pointer;
+    position: absolute;
+    z-index: 1;
+  }
+  .toggle-switch .track {
+    position: absolute;
+    inset: 0;
+    background: var(--gridline);
+    border-radius: 999px;
+    transition: background 0.15s ease;
+  }
+  .toggle-switch .thumb {
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    transition: transform 0.15s ease;
+  }
+  .toggle-switch input:checked ~ .track { background: var(--brand); }
+  .toggle-switch input:checked ~ .thumb { transform: translateX(18px); }
+
+  /* ---------- History ---------- */
+  .filter-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .filter-row select {
+    font-size: 13px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-primary);
+  }
+  .table-scroll { overflow-x: auto; }
+  table.history-table {
+    width: 100%;
+    min-width: 560px;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .history-table th {
+    text-align: left;
+    color: var(--text-muted);
+    font-weight: 500;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--gridline);
+  }
+  .history-table td {
+    padding: 10px 10px;
+    border-bottom: 1px solid var(--gridline);
+  }
+  .history-table tr:last-child td { border-bottom: none; }
+  .history-table td:nth-child(4), .history-table td:nth-child(5) {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .score-pill {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--brand);
+  }
+
+  /* ---------- Beans ---------- */
+  .bean-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 14px;
+  }
+  .bean-card { padding: 14px; }
+  .bean-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+  }
+  .bean-name { font-family: var(--font-display); font-size: 15px; font-weight: 700; }
+  .bean-origin { font-size: 12px; color: var(--text-secondary); margin: 2px 0 10px; }
+  .bean-meta-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+  }
+  .stock-bar-track {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--gridline);
+    margin-top: 10px;
+    overflow: hidden;
+  }
+  .stock-bar-fill { height: 100%; background: var(--brand); }
+  .stock-bar-fill.low { background: var(--status-warning); }
+
+  /* ---------- Bottom nav (mobile) ---------- */
+  .bottom-nav {
+    display: none;
+  }
+
+  /* Medium widths (e.g. a Chrome window split to half-screen) collapse the
+     sidebar to an icon-only rail instead of dropping navigation entirely —
+     a left-side nav stays visible all the way down to phone widths. */
+  @media (max-width: 900px) and (min-width: 521px) {
+    .sidebar {
+      width: 64px;
+      padding: 20px 8px;
+      align-items: center;
+    }
+    .sidebar .brand-title {
+      justify-content: center;
+      padding: 0 0 20px;
+    }
+    .sidebar .brand-title .label,
+    .sidebar .nav-link .label {
+      display: none;
+    }
+    .sidebar .nav-link {
+      justify-content: center;
+      gap: 0;
+      padding: 10px 6px;
+    }
+    .main-content { max-width: 100%; }
+  }
+
+  @media (max-width: 520px) {
+    .sidebar { display: none; }
+    .main-content { padding: 16px 16px 88px; max-width: 100%; }
+    .stat-row { grid-template-columns: repeat(2, 1fr); }
+    .dashboard-grid { grid-template-columns: 1fr; }
+    .bottom-nav {
+      display: flex;
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: var(--surface-1);
+      border-top: 1px solid var(--border);
+      padding: 8px 4px calc(env(safe-area-inset-bottom, 0px) + 6px);
+      z-index: 10;
+    }
+    .bottom-nav .nav-link {
+      flex: 1;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      font-size: 10px;
+      border-radius: 10px;
+      padding: 6px 2px;
+    }
+    .bottom-nav .nav-link .icon svg { width: 20px; height: 20px; }
+    .bottom-nav .nav-link[aria-current="page"] { background: transparent; }
+    .fab { right: 16px; bottom: 88px; }
+    .toast { bottom: 92px; }
+  }
+</style>
+</head>
+<body>
+<div class="viz-root">
+  <div class="app-shell">
+    <!-- Desktop sidebar -->
+    <aside class="sidebar">
+      <div class="brand-title"><span class="icon" data-icon="brand"></span><span class="label">Brew Log</span></div>
+      <button class="nav-link" data-view="dashboard" aria-current="page"><span class="icon" data-icon="dashboard"></span><span class="label">ダッシュボード</span></button>
+      <button class="nav-link" data-view="log-form"><span class="icon" data-icon="log-form"></span><span class="label">抽出を記録</span></button>
+      <button class="nav-link" data-view="history"><span class="icon" data-icon="history"></span><span class="label">履歴一覧</span></button>
+      <button class="nav-link" data-view="beans"><span class="icon" data-icon="beans"></span><span class="label">豆管理</span></button>
+      <button class="nav-link" data-view="settings"><span class="icon" data-icon="settings"></span><span class="label">設定</span></button>
+    </aside>
+
+    <main class="main-content">
+
+      <!-- ================= DASHBOARD ================= -->
+      <section class="view active" id="view-dashboard">
+        <h1 class="page-title">ダッシュボード</h1>
+        <p class="page-subtitle">直近の抽出状況と豆の在庫をひと目で確認</p>
+
+        <div class="stat-row">
+          <div class="card stat-tile">
+            <p class="stat-label">直近7日の抽出</p>
+            <p class="stat-value"><span id="stat-week-count">--</span><span class="unit">回</span></p>
+          </div>
+          <div class="card stat-tile">
+            <p class="stat-label">平均抽出収率</p>
+            <p class="stat-value"><span id="stat-avg-ey">--</span><span class="unit">%</span></p>
+          </div>
+          <div class="card stat-tile">
+            <p class="stat-label">平均TDS（ドリップ系）</p>
+            <p class="stat-value"><span id="stat-avg-tds">--</span><span class="unit">%</span></p>
+          </div>
+          <div class="card stat-tile">
+            <p class="stat-label">保有豆の種類</p>
+            <p class="stat-value"><span id="stat-bean-count">--</span><span class="unit">種</span></p>
+          </div>
+        </div>
+
+        <div class="dashboard-grid">
+          <div class="card">
+            <p class="section-title">最近の抽出記録</p>
+            <div id="recent-brews"></div>
+            <div class="sparkline-wrap">
+              <p class="sparkline-value">直近14日の抽出回数</p>
+              <svg id="sparkline" viewBox="0 0 280 60" width="100%" height="60"></svg>
+            </div>
+          </div>
+          <div class="card">
+            <p class="section-title">残りが少ない豆</p>
+            <div id="bean-alerts"></div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 16px;">
+          <p class="section-title">サッと記録したメモ</p>
+          <div id="quick-notes-list"></div>
+          <p class="empty-hint" id="quick-notes-empty" style="font-size:13px;color:var(--text-muted);">まだメモはありません</p>
+        </div>
+      </section>
+
+      <!-- ================= LOG FORM ================= -->
+      <section class="view" id="view-log-form">
+        <div class="view-header-row">
+          <div>
+            <h1 class="page-title">抽出を記録</h1>
+            <p class="page-subtitle">抽出方法を選ぶと入力項目が切り替わります</p>
+          </div>
+          <button class="secondary-btn" id="open-quick-modal-btn" type="button">サッと記録</button>
+        </div>
+
+        <div class="card">
+          <div class="form-section">
+            <h2>基本情報</h2>
+            <div class="field-grid">
+              <div class="field">
+                <label>豆</label>
+                <input type="text" id="bean-input" list="bean-datalist" placeholder="豆の名前を選択、または入力" autocomplete="off" />
+                <datalist id="bean-datalist"></datalist>
+              </div>
+              <div class="field">
+                <label>抽出日時</label>
+                <input type="datetime-local" id="brew-datetime" />
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <h2>抽出方法</h2>
+
+            <div class="recipe-toolbar">
+              <select id="recipe-select" aria-label="保存済みレシピ">
+                <option value="">保存済みレシピを読み込む…</option>
+              </select>
+              <button class="icon-btn" id="delete-recipe-btn" type="button" title="選択中のレシピを削除" aria-label="削除" hidden><span class="icon" data-icon="trash"></span></button>
+              <button class="secondary-btn" id="save-recipe-btn" type="button">この設定をレシピとして保存</button>
+            </div>
+
+            <div class="method-tabs" id="method-tabs">
+              <button class="method-tab" data-method="drip" aria-pressed="true">ハンドドリップ</button>
+              <button class="method-tab" data-method="espresso" aria-pressed="false">エスプレッソ</button>
+              <button class="method-tab" data-method="frenchpress" aria-pressed="false">フレンチプレス</button>
+              <button class="method-tab" data-method="aeropress" aria-pressed="false">エアロプレス</button>
+              <button class="method-tab" data-method="siphon" aria-pressed="false">サイフォン</button>
+              <button class="method-tab" data-method="moka" aria-pressed="false">マキネッタ</button>
+              <button class="method-tab" data-method="cold" aria-pressed="false">水出し</button>
+            </div>
+
+            <div class="field-grid">
+              <div class="field"><label>粉量 (g)</label><input type="number" id="dose" value="15" step="0.1" /></div>
+              <div class="field"><label>湯量 (cc)</label><input type="number" id="beverage-volume" value="240" step="1" /></div>
+              <div class="field"><label>湯温 (℃)</label><input type="number" id="temp-input" value="92" /></div>
+              <div class="field"><label>挽き目</label><input type="text" id="grind-input" placeholder="例: Comandante 22クリック" /></div>
+            </div>
+
+            <div class="method-group active" data-method-group="drip">
+              <div class="field-grid" style="margin-top:12px;">
+                <div class="field"><label>注湯回数 (投)</label><input type="number" id="pour-count" value="3" min="1" max="10" /></div>
+              </div>
+              <div class="pour-table" id="pour-rows"></div>
+              <div class="yield-result" style="margin-top:12px;">
+                <div>トータル抽出時間: <b id="total-brew-time-output">--</b></div>
+              </div>
+            </div>
+            <div class="method-group" data-method-group="espresso">
+              <div class="field-grid" style="margin-top:12px;">
+                <div class="field" data-setting-block="detail"><label>バスケット径 (mm)</label><input type="number" data-field="basket-diameter" value="58" /></div>
+                <div class="field"><label>ショット時間 (秒)</label><input type="number" data-field="shot-time" value="28" /></div>
+                <div class="field" data-setting-block="detail"><label>圧力プロファイルメモ</label><input type="text" data-field="pressure-notes" placeholder="例: 9barプリインフュージョン2秒" /></div>
+              </div>
+            </div>
+            <div class="method-group" data-method-group="frenchpress">
+              <div class="field-grid" style="margin-top:12px;">
+                <div class="field"><label>浸漬時間 (分)</label><input type="number" data-field="steep-minutes" value="4" /></div>
+                <div class="field" data-setting-block="detail"><label>攪拌メモ</label><input type="text" data-field="stir-notes" placeholder="例: 4分でクラストを崩して1分待つ" /></div>
+              </div>
+            </div>
+            <div class="method-group" data-method-group="aeropress">
+              <div class="field-grid" style="margin-top:12px;">
+                <div class="field"><label>抽出方向</label>
+                  <select data-field="orientation">
+                    <option>正立</option>
+                    <option>反転（インバート）</option>
+                  </select>
+                </div>
+                <div class="field"><label>浸漬時間 (秒)</label><input type="number" data-field="steep-seconds" value="90" /></div>
+                <div class="field"><label>プレス時間 (秒)</label><input type="number" data-field="press-seconds" value="20" /></div>
+              </div>
+            </div>
+            <div class="method-group" data-method-group="siphon">
+              <div class="field-grid" style="margin-top:12px;">
+                <div class="field"><label>加熱時間 (秒)</label><input type="number" data-field="heat-seconds" value="60" /></div>
+              </div>
+            </div>
+            <div class="method-group" data-method-group="moka">
+              <div class="field-grid" style="margin-top:12px;">
+                <div class="field" data-setting-block="detail"><label>火加減メモ</label><input type="text" data-field="heat-notes" placeholder="例: 弱火・蓋を開けたまま" /></div>
+                <div class="field"><label>抽出時間 (秒)</label><input type="number" data-field="brew-seconds" value="240" /></div>
+              </div>
+            </div>
+            <div class="method-group" data-method-group="cold">
+              <div class="field-grid" style="margin-top:12px;">
+                <div class="field"><label>浸漬時間 (時間)</label><input type="number" data-field="steep-hours" value="12" /></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section" id="tds-block" data-setting-block="tds">
+            <h2>TDS・抽出収率</h2>
+            <div class="field-grid">
+              <div class="field"><label>TDS実測値 (%)</label><input type="number" id="tds" value="1.35" step="0.01" /></div>
+            </div>
+            <div class="yield-result">
+              <div>抽出収率 (Extraction Yield): <b id="yield-output">--</b>%</div>
+              <div>粉に対する液体比: <b id="ratio-output">--</b></div>
+            </div>
+          </div>
+
+          <div class="form-section" id="water-block" data-setting-block="water">
+            <h2>水質</h2>
+            <div class="field-grid">
+              <div class="field"><label>GH (mg/L)</label><input type="number" id="gh-input" placeholder="例: 60" /></div>
+              <div class="field"><label>KH (mg/L)</label><input type="number" id="kh-input" placeholder="例: 40" /></div>
+              <div class="field"><label>ミネラルレシピ</label><input type="text" id="mineral-input" placeholder="例: 自作レシピA" /></div>
+            </div>
+          </div>
+
+          <div class="form-section" id="simple-score-block" data-setting-block="wbrc-off">
+            <h2>評価</h2>
+            <div class="wbrc-axis">
+              <div class="wbrc-axis-head"><span>総合評価</span><b data-value>6</b></div>
+              <input type="range" min="0" max="9" value="6" id="simple-score" />
+            </div>
+          </div>
+
+          <div class="form-section" id="wbrc-block" data-setting-block="wbrc">
+            <h2>評価（WBrC基準）</h2>
+            <div id="wbrc-axes"></div>
+            <p class="wbrc-total">合計スコア: <b id="wbrc-total-score">0</b> / 63</p>
+          </div>
+
+          <div class="form-section">
+            <h2>フレーバーノート</h2>
+            <button class="flavor-link-btn" id="open-flavor-wheel-btn" type="button">🌸 フレーバーホイールで選ぶ</button>
+            <div class="flavor-notes-row" id="flavor-notes-row"></div>
+            <p class="flavor-notes-empty-hint" id="flavor-notes-empty-hint">まだ選択されていません</p>
+          </div>
+
+          <div class="form-actions">
+            <button class="secondary-btn" id="save-draft-btn" type="button">下書き保存</button>
+            <button class="primary-btn" id="save-brew-btn" type="button">記録する</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= HISTORY ================= -->
+      <section class="view" id="view-history">
+        <h1 class="page-title">履歴一覧</h1>
+        <p class="page-subtitle">過去の抽出記録を振り返る</p>
+
+        <div class="filter-row">
+          <select id="history-filter-method" aria-label="抽出方法で絞り込み"></select>
+          <select id="history-filter-bean" aria-label="豆で絞り込み"></select>
+          <select id="history-filter-period" aria-label="期間で絞り込み">
+            <option value="30">直近30日</option>
+            <option value="7">直近7日</option>
+            <option value="all">全期間</option>
+          </select>
+        </div>
+
+        <div class="card table-scroll">
+          <table class="history-table">
+            <thead>
+              <tr><th>日付</th><th>豆</th><th>方法</th><th>TDS</th><th>収率</th><th>Overall</th></tr>
+            </thead>
+            <tbody id="history-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ================= BEANS ================= -->
+      <section class="view" id="view-beans">
+        <div class="view-header-row">
+          <div>
+            <h1 class="page-title">豆管理</h1>
+            <p class="page-subtitle">持っている（持っていた）豆の情報を記録します</p>
+          </div>
+          <button class="primary-btn" id="open-bean-modal-btn" type="button">＋ 豆を追加</button>
+        </div>
+
+        <p class="section-title">使用中の豆</p>
+        <div class="bean-grid" id="bean-grid-active"></div>
+        <p class="empty-hint" id="bean-grid-active-empty" style="display:none;font-size:13px;color:var(--text-muted);">使用中の豆はありません</p>
+
+        <p class="section-title" style="margin-top:24px;">以前購入した豆</p>
+        <div class="bean-grid" id="bean-grid-used"></div>
+        <p class="empty-hint" id="bean-grid-used-empty" style="display:none;font-size:13px;color:var(--text-muted);">以前購入した豆はありません</p>
+      </section>
+
+      <!-- ================= SETTINGS ================= -->
+      <section class="view" id="view-settings">
+        <h1 class="page-title">設定</h1>
+        <p class="page-subtitle">マニアックな記録項目はここでオン/オフできます。オフにした項目は記録フォームに表示されません。</p>
+
+        <div class="card">
+          <div class="preset-row">
+            <button class="method-tab" id="preset-simple">シンプルモード</button>
+            <button class="method-tab" id="preset-full">フル装備モード</button>
+          </div>
+
+          <div class="settings-group">
+            <h2>記録項目</h2>
+            <p class="group-hint">オンにした項目だけが「抽出を記録」フォームに表示されます</p>
+
+            <div class="toggle-row">
+              <div class="toggle-row-text">
+                <div class="toggle-label">TDS・抽出収率</div>
+                <div class="toggle-desc">リフラクトメーターの実測値から抽出収率を自動計算</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" data-setting="tds" checked />
+                <span class="track"></span><span class="thumb"></span>
+              </label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-row-text">
+                <div class="toggle-label">水質記録</div>
+                <div class="toggle-desc">GH/KHやミネラルレシピを記録</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" data-setting="water" checked />
+                <span class="track"></span><span class="thumb"></span>
+              </label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-row-text">
+                <div class="toggle-label">詳細評価（WBrC 7軸）</div>
+                <div class="toggle-desc">オフの場合は総合評価スコアのみのシンプルな評価になります</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" data-setting="wbrc" checked />
+                <span class="track"></span><span class="thumb"></span>
+              </label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-row-text">
+                <div class="toggle-label">抽出方式の詳細パラメータ</div>
+                <div class="toggle-desc">バスケット径、圧力プロファイルメモ、攪拌メモなど</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" data-setting="detail" checked />
+                <span class="track"></span><span class="thumb"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <h2>データ管理</h2>
+            <p class="group-hint">抽出記録・豆・レシピ・メモ・設定をJSONファイルとして書き出し/読み込みできます</p>
+            <div class="preset-row">
+              <button class="secondary-btn" id="export-data-btn" type="button">エクスポート</button>
+              <button class="secondary-btn" id="import-data-btn" type="button">インポート</button>
+              <input type="file" id="import-file-input" accept="application/json,.json" hidden />
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Mobile bottom nav -->
+  <nav class="bottom-nav">
+    <button class="nav-link" data-view="dashboard" aria-current="page"><span class="icon" data-icon="dashboard"></span>ホーム</button>
+    <button class="nav-link" data-view="log-form"><span class="icon" data-icon="log-form"></span>記録</button>
+    <button class="nav-link" data-view="history"><span class="icon" data-icon="history"></span>履歴</button>
+    <button class="nav-link" data-view="beans"><span class="icon" data-icon="beans"></span>豆</button>
+    <button class="nav-link" data-view="settings"><span class="icon" data-icon="settings"></span>設定</button>
+  </nav>
+
+  <!-- Flavor wheel modal -->
+  <div class="modal-overlay" id="flavor-modal-overlay" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-label="フレーバーホイール">
+      <div class="modal-head">
+        <h2>フレーバーホイールで選ぶ</h2>
+        <button class="modal-close" id="flavor-modal-close" type="button" aria-label="閉じる">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="wheel-panel">
+          <p class="subtitle">内側=大分類9系統／外側=サブカテゴリ。クリックすると右側に代表例が表示されます。</p>
+          <svg id="flavor-wheel-svg" viewBox="0 0 600 600"></svg>
+        </div>
+        <div class="side-panel">
+          <p class="fw-section-title" id="flavor-panel-title">系統をクリックしてください</p>
+          <div id="flavor-examples"></div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="primary-btn" id="flavor-modal-done" type="button">完了</button>
+      </div>
+    </div>
+  </div>
+  <div class="fw-tooltip" id="flavor-tooltip"></div>
+
+  <!-- Add bean modal -->
+  <div class="modal-overlay" id="bean-modal-overlay" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-label="豆を追加">
+      <div class="modal-head">
+        <h2>豆を追加</h2>
+        <button class="modal-close" id="bean-modal-close" type="button" aria-label="閉じる">✕</button>
+      </div>
+      <div class="modal-body" style="flex-direction: column;">
+        <div class="field-grid" style="flex: 1 1 100%;">
+          <div class="field">
+            <label>豆の名前</label>
+            <input type="text" id="bean-form-name" placeholder="例: エチオピア イルガチェフェ" />
+          </div>
+          <div class="field">
+            <label>産地</label>
+            <input type="text" id="bean-form-country" placeholder="例: エチオピア" />
+          </div>
+          <div class="field">
+            <label>精製方法</label>
+            <select id="bean-form-process"></select>
+          </div>
+          <div class="field" id="bean-form-process-other-wrap" hidden>
+            <label>精製方法（その他）</label>
+            <input type="text" id="bean-form-process-other" placeholder="例: Wet Hulled" />
+          </div>
+          <div class="field">
+            <label>焙煎度</label>
+            <select id="bean-form-roast">
+              <option>浅煎り</option>
+              <option>中浅煎り</option>
+              <option>中煎り</option>
+              <option>中深煎り</option>
+              <option>深煎り</option>
+              <option>不明</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>焙煎日</label>
+            <input type="date" id="bean-form-roast-date" min="1900-01-01" max="2099-12-31" />
+          </div>
+          <div class="field">
+            <label>購入量 (g)</label>
+            <input type="number" id="bean-form-purchase-weight" value="200" min="0" step="1" />
+          </div>
+        </div>
+        <p class="empty-hint" id="bean-form-hint" style="font-size:12px;color:var(--text-muted);margin:4px 0 0;">残量は購入量から自動計算されますが、後から手動でも調整できます</p>
+      </div>
+      <div class="modal-foot">
+        <button class="secondary-btn" id="bean-modal-cancel" type="button">キャンセル</button>
+        <button class="primary-btn" id="bean-modal-save" type="button">追加する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Adjust bean stock modal -->
+  <div class="modal-overlay" id="stock-modal-overlay" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-label="残量を調整" style="max-width: 380px;">
+      <div class="modal-head">
+        <h2>残量を調整</h2>
+        <button class="modal-close" id="stock-modal-close" type="button" aria-label="閉じる">✕</button>
+      </div>
+      <div class="modal-body" style="flex-direction: column;">
+        <p class="empty-hint" id="stock-modal-hint" style="font-size:12px;color:var(--text-muted);margin:0 0 4px;"></p>
+        <div class="field">
+          <label>残量 (g)</label>
+          <input type="number" id="stock-modal-input" min="0" step="1" />
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="secondary-btn" id="stock-modal-cancel" type="button">キャンセル</button>
+        <button class="primary-btn" id="stock-modal-save" type="button">保存する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save recipe modal -->
+  <div class="modal-overlay" id="recipe-modal-overlay" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-label="レシピを保存" style="max-width: 420px;">
+      <div class="modal-head">
+        <h2>レシピを保存</h2>
+        <button class="modal-close" id="recipe-modal-close" type="button" aria-label="閉じる">✕</button>
+      </div>
+      <div class="modal-body" style="flex-direction: column;">
+        <div class="field">
+          <label>レシピ名</label>
+          <input type="text" id="recipe-name-input" placeholder="例: 王道ハンドドリップ" />
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="secondary-btn" id="recipe-modal-cancel" type="button">キャンセル</button>
+        <button class="primary-btn" id="recipe-modal-save" type="button">保存する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick record modal -->
+  <div class="modal-overlay" id="quick-modal-overlay" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-label="サッと記録" style="max-width: 420px;">
+      <div class="modal-head">
+        <h2>サッと記録</h2>
+        <button class="modal-close" id="quick-modal-close" type="button" aria-label="閉じる">✕</button>
+      </div>
+      <div class="modal-body" style="flex-direction: column;">
+        <div class="field">
+          <label>豆（任意）</label>
+          <input type="text" id="quick-bean-input" list="bean-datalist" placeholder="豆を選択、または入力" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label>一言メモ</label>
+          <textarea id="quick-memo-input" rows="3" placeholder="例: いつもよりすっきり、次は粗めで"></textarea>
+        </div>
+        <div class="field">
+          <label>総合評価（任意）</label>
+          <div class="star-rating" id="quick-star-rating">
+            <button type="button" class="star-btn" data-star="1" aria-label="星1">★</button>
+            <button type="button" class="star-btn" data-star="2" aria-label="星2">★</button>
+            <button type="button" class="star-btn" data-star="3" aria-label="星3">★</button>
+            <button type="button" class="star-btn" data-star="4" aria-label="星4">★</button>
+            <button type="button" class="star-btn" data-star="5" aria-label="星5">★</button>
+          </div>
+        </div>
+        <div id="quick-extra-fields"></div>
+        <div class="field">
+          <select id="quick-add-field-select">
+            <option value="">＋ 項目を追加…</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="secondary-btn" id="quick-modal-cancel" type="button">キャンセル</button>
+        <button class="primary-btn" id="quick-modal-save" type="button">記録する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Brew detail modal -->
+  <div class="modal-overlay" id="detail-modal-overlay" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-label="記録の詳細" style="max-width: 560px;">
+      <div class="modal-head">
+        <h2 id="detail-title">記録の詳細</h2>
+        <button class="modal-close" id="detail-modal-close" type="button" aria-label="閉じる">✕</button>
+      </div>
+      <div class="modal-body" style="flex-direction: column;" id="detail-body"></div>
+      <div class="modal-foot" style="justify-content: space-between;">
+        <button class="secondary-btn danger" id="detail-delete-btn" type="button">削除</button>
+        <div style="display:flex; gap:10px;">
+          <button class="secondary-btn" id="detail-close-btn" type="button">閉じる</button>
+          <button class="primary-btn" id="detail-reproduce-btn" type="button">このレシピで再現</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</div>
+
+<script>
+  // ---------- PWA: register service worker for installability + offline shell ----------
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch((err) => {
+        console.warn('Service worker registration failed:', err);
+      });
+    });
+  }
+
+  // ---------- Icon set (replaces emoji glyphs with a consistent line-icon system) ----------
+  const ICONS = {
+    brand: '<ellipse cx="12" cy="17.8" rx="8.3" ry="1.3"/><path d="M6.5 8C6 11.5 6.3 14.5 8 16.8C9 18.1 15 18.1 16 16.8C17.7 14.5 18 11.5 17.5 8Z"/><path d="M17.4 10.3a2.6 2.6 0 0 1 0 5.2"/><path d="M9 6c0-1 1-1 1-2s-1-1-1-2"/><path d="M13 6c0-1 1-1 1-2s-1-1-1-2"/>',
+    dashboard: '<path d="M4 11.5L12 5l8 6.5"/><path d="M6 10v8a1 1 0 0 0 1 1h3v-5h4v5h3a1 1 0 0 0 1-1v-8"/>',
+    'log-form': '<path d="M4 20l1-4L16 5l3 3L8 19l-4 1z"/><path d="M14 7l3 3"/>',
+    history: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
+    beans: '<ellipse cx="12" cy="12" rx="5" ry="8" transform="rotate(20 12 12)"/><path d="M12 5c-2 3-2 11 0 14" transform="rotate(20 12 12)"/>',
+    settings: '<path d="M4 7h10"/><circle cx="16" cy="7" r="2"/><path d="M4 12h4"/><circle cx="10" cy="12" r="2"/><path d="M14 12h6"/><path d="M4 17h10"/><circle cx="16" cy="17" r="2"/>',
+    trash: '<path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/>',
+    scale: '<path d="M12 3v4"/><path d="M5 7h14"/><path d="M5 7l-3 7a3 3 0 0 0 6 0z"/><path d="M19 7l-3 7a3 3 0 0 0 6 0z"/><path d="M8 21h8"/><path d="M12 11v10"/>',
+  };
+  function renderIcons(root = document) {
+    root.querySelectorAll('[data-icon]').forEach(el => {
+      const paths = ICONS[el.dataset.icon];
+      if (!paths) return;
+      el.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+    });
+  }
+  renderIcons();
+
+  // ---------- Navigation ----------
+  const navLinks = document.querySelectorAll('.nav-link');
+  const views = document.querySelectorAll('.view');
+  function setView(name) {
+    views.forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
+    navLinks.forEach(l => l.setAttribute('aria-current', l.dataset.view === name ? 'page' : 'false'));
+    window.scrollTo(0, 0);
+  }
+  navLinks.forEach(link => link.addEventListener('click', () => setView(link.dataset.view)));
+
+  // ---------- Method tabs ----------
+  // Scoped to #method-tabs: the settings page reuses the .method-tab class for
+  // its preset buttons, and a bare `.method-tab` query here would catch those too.
+  const methodTabs = document.querySelectorAll('#method-tabs .method-tab');
+  const methodGroups = document.querySelectorAll('.method-group');
+  methodTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      methodTabs.forEach(t => t.setAttribute('aria-pressed', 'false'));
+      tab.setAttribute('aria-pressed', 'true');
+      methodGroups.forEach(g => g.classList.toggle('active', g.dataset.methodGroup === tab.dataset.method));
+    });
+  });
+
+  // ---------- Extraction yield calculation ----------
+  const doseInput = document.getElementById('dose');
+  const beverageInput = document.getElementById('beverage-volume');
+  const tdsInput = document.getElementById('tds');
+  const yieldOutput = document.getElementById('yield-output');
+  const ratioOutput = document.getElementById('ratio-output');
+  function recalcYield() {
+    const dose = parseFloat(doseInput.value);
+    const beverage = parseFloat(beverageInput.value);
+    const tds = parseFloat(tdsInput.value);
+    if (dose > 0 && beverage > 0 && tds >= 0) {
+      const ey = (tds * beverage) / dose;
+      yieldOutput.textContent = ey.toFixed(2);
+      ratioOutput.textContent = '1 : ' + (beverage / dose).toFixed(1);
+    } else {
+      yieldOutput.textContent = '--';
+      ratioOutput.textContent = '--';
+    }
+  }
+  [doseInput, beverageInput, tdsInput].forEach(el => el.addEventListener('input', recalcYield));
+
+  // ---------- Hand-drip pour-by-pour recipe ----------
+  const pourCountInput = document.getElementById('pour-count');
+  const pourRowsEl = document.getElementById('pour-rows');
+  const totalBrewTimeOutput = document.getElementById('total-brew-time-output');
+
+  function formatMinSec(totalSeconds) {
+    const m = Math.floor(totalSeconds / 60);
+    const s = Math.round(totalSeconds % 60);
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
+  function collectPourValues() {
+    return [...pourRowsEl.querySelectorAll('.pour-row')].map((row, i) => ({
+      interval: i === 0 ? 0 : (parseFloat(row.querySelector('.pour-interval')?.value) || 0),
+      amount: parseFloat(row.querySelector('.pour-amount').value) || 0,
+      memo: row.querySelector('.pour-note').value,
+    }));
+  }
+
+  function buildPourRows(count, preserved) {
+    pourRowsEl.innerHTML = '';
+    for (let i = 0; i < count; i++) {
+      const prev = preserved && preserved[i];
+      const defaultInterval = prev ? prev.interval : 45;
+      const defaultAmount = prev ? prev.amount : Math.round((parseFloat(beverageInput.value) || 240) / count);
+      const defaultMemo = prev ? prev.memo : '';
+      const row = document.createElement('div');
+      row.className = 'pour-row';
+      const timeField = i === 0
+        ? `<div class="pour-field"><label>タイミング</label><span class="pour-start-label">スタート（0秒）</span></div>`
+        : `<div class="pour-field"><label>前の投からの時間 (秒)</label><input type="number" class="pour-interval" value="${defaultInterval}" min="0" /></div>`;
+      row.innerHTML = `
+        <span class="pour-index">第${i + 1}投</span>
+        ${timeField}
+        <div class="pour-field"><label>注湯量 (g)</label><input type="number" class="pour-amount" value="${defaultAmount}" min="0" /></div>
+        <div class="pour-field pour-memo"><label>メモ</label><input type="text" class="pour-note" placeholder="例: ここで攪拌" value="${defaultMemo}" /></div>
+      `;
+      pourRowsEl.appendChild(row);
+    }
+  }
+
+  function recalcTotalBrewTime() {
+    const values = collectPourValues();
+    if (!values.length) { totalBrewTimeOutput.textContent = '--'; return; }
+    const totalSeconds = values.reduce((sum, v) => sum + v.interval, 0);
+    totalBrewTimeOutput.textContent = `${formatMinSec(totalSeconds)}（${totalSeconds}秒）`;
+  }
+
+  pourCountInput.addEventListener('input', () => {
+    const count = Math.max(1, Math.min(10, parseInt(pourCountInput.value, 10) || 1));
+    const preserved = collectPourValues();
+    buildPourRows(count, preserved);
+    recalcTotalBrewTime();
+  });
+  pourRowsEl.addEventListener('input', (e) => {
+    if (e.target.matches('.pour-interval')) recalcTotalBrewTime();
+  });
+
+  buildPourRows(parseInt(pourCountInput.value, 10) || 3, null);
+  recalcTotalBrewTime();
+  recalcYield();
+
+  // ---------- Recipes: save the current brewing parameters and reload them later ----------
+  // A "recipe" captures how to brew (method + parameters), not the bean or the tasting
+  // result — those are specific to one brew, while a recipe is meant to be reused.
+  const RECIPES_KEY = 'coffeeAppRecipes';
+  function loadRecipes() {
+    try { return JSON.parse(localStorage.getItem(RECIPES_KEY) || '[]'); } catch { return []; }
+  }
+  function saveRecipesToStorage(list) {
+    localStorage.setItem(RECIPES_KEY, JSON.stringify(list));
+  }
+  let recipes = loadRecipes();
+
+  const recipeSelect = document.getElementById('recipe-select');
+  const deleteRecipeBtn = document.getElementById('delete-recipe-btn');
+  const tempInput = document.getElementById('temp-input');
+  const grindInput = document.getElementById('grind-input');
+
+  function activeMethod() {
+    return document.querySelector('#method-tabs .method-tab[aria-pressed="true"]').dataset.method;
+  }
+  function methodLabel(method) {
+    const tab = document.querySelector(`#method-tabs [data-method="${method}"]`);
+    return tab ? tab.textContent : method;
+  }
+
+  function renderRecipeSelect() {
+    const currentValue = recipeSelect.value;
+    recipeSelect.innerHTML = '<option value="">保存済みレシピを読み込む…</option>';
+    recipes.forEach((r, i) => {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = `${r.name}（${methodLabel(r.method)}）`;
+      recipeSelect.appendChild(opt);
+    });
+    recipeSelect.value = recipes[currentValue] ? currentValue : '';
+    deleteRecipeBtn.hidden = recipeSelect.value === '';
+  }
+
+  function captureRecipe() {
+    const method = activeMethod();
+    const recipe = {
+      method,
+      dose: doseInput.value,
+      beverageVolume: beverageInput.value,
+      temp: tempInput.value,
+      grind: grindInput.value,
+      methodFields: {},
+    };
+    document.querySelectorAll(`[data-method-group="${method}"] [data-field]`).forEach(el => {
+      recipe.methodFields[el.dataset.field] = el.value;
+    });
+    if (method === 'drip') {
+      recipe.pourCount = pourCountInput.value;
+      recipe.pours = collectPourValues();
+    }
+    return recipe;
+  }
+
+  function applyRecipe(recipe) {
+    document.querySelector(`#method-tabs [data-method="${recipe.method}"]`)?.click();
+    doseInput.value = recipe.dose;
+    beverageInput.value = recipe.beverageVolume;
+    tempInput.value = recipe.temp;
+    grindInput.value = recipe.grind;
+    Object.entries(recipe.methodFields || {}).forEach(([key, val]) => {
+      const el = document.querySelector(`[data-method-group="${recipe.method}"] [data-field="${key}"]`);
+      if (el) el.value = val;
+    });
+    if (recipe.method === 'drip' && recipe.pours) {
+      pourCountInput.value = recipe.pourCount || recipe.pours.length;
+      buildPourRows(recipe.pours.length, recipe.pours);
+    }
+    recalcTotalBrewTime();
+    recalcYield();
+  }
+
+  renderRecipeSelect();
+
+  recipeSelect.addEventListener('change', () => {
+    deleteRecipeBtn.hidden = recipeSelect.value === '';
+    if (recipeSelect.value === '') return;
+    applyRecipe(recipes[Number(recipeSelect.value)]);
+  });
+
+  deleteRecipeBtn.addEventListener('click', () => {
+    const idx = Number(recipeSelect.value);
+    if (Number.isNaN(idx) || !recipes[idx]) return;
+    if (!confirm(`「${recipes[idx].name}」を削除しますか？`)) return;
+    recipes.splice(idx, 1);
+    saveRecipesToStorage(recipes);
+    renderRecipeSelect();
+  });
+
+  const recipeModalOverlay = document.getElementById('recipe-modal-overlay');
+  const recipeNameInput = document.getElementById('recipe-name-input');
+  function openRecipeModal() {
+    recipeNameInput.value = '';
+    recipeModalOverlay.hidden = false;
+    recipeNameInput.focus();
+  }
+  function closeRecipeModal() { recipeModalOverlay.hidden = true; }
+
+  document.getElementById('save-recipe-btn').addEventListener('click', openRecipeModal);
+  document.getElementById('recipe-modal-close').addEventListener('click', closeRecipeModal);
+  document.getElementById('recipe-modal-cancel').addEventListener('click', closeRecipeModal);
+  recipeModalOverlay.addEventListener('click', (e) => {
+    if (e.target === recipeModalOverlay) closeRecipeModal();
+  });
+  document.getElementById('recipe-modal-save').addEventListener('click', () => {
+    const name = recipeNameInput.value.trim();
+    if (!name) { recipeNameInput.focus(); return; }
+    const recipe = captureRecipe();
+    recipe.name = name;
+    recipes.push(recipe);
+    saveRecipesToStorage(recipes);
+    renderRecipeSelect();
+    recipeSelect.value = String(recipes.length - 1);
+    deleteRecipeBtn.hidden = false;
+    closeRecipeModal();
+  });
+
+  // ---------- Quick record: a lightweight dashboard entry for casual logging ----------
+  // Deliberately separate from the full "抽出を記録" flow — bean/memo/rating only by
+  // default, with an ad-hoc "add just this field" picker for the odd condition that
+  // matters on a given day (e.g. "only note the grind this time").
+  const QUICK_ADDABLE_FIELDS = [
+    // 基本
+    { key: 'method', label: '抽出方法', type: 'select', group: '基本', options: ['ハンドドリップ', 'エスプレッソ', 'フレンチプレス', 'エアロプレス', 'サイフォン', 'マキネッタ', '水出し'] },
+    { key: 'dose', label: '粉量 (g)', type: 'number', group: '基本' },
+    { key: 'water_volume', label: '湯量 (cc)', type: 'number', group: '基本' },
+    { key: 'temp', label: '湯温 (℃)', type: 'number', group: '基本' },
+    { key: 'grind', label: '挽き目', type: 'text', group: '基本' },
+    { key: 'pour_count', label: '注湯回数 (投)', type: 'number', group: '基本' },
+    // エスプレッソ
+    { key: 'basket_diameter', label: 'バスケット径 (mm)', type: 'number', group: 'エスプレッソ' },
+    { key: 'shot_time', label: 'ショット時間 (秒)', type: 'number', group: 'エスプレッソ' },
+    { key: 'pressure_notes', label: '圧力プロファイルメモ', type: 'text', group: 'エスプレッソ' },
+    // フレンチプレス
+    { key: 'steep_minutes', label: '浸漬時間 (分)', type: 'number', group: 'フレンチプレス' },
+    { key: 'stir_notes', label: '攪拌メモ', type: 'text', group: 'フレンチプレス' },
+    // エアロプレス
+    { key: 'orientation', label: '抽出方向', type: 'select', group: 'エアロプレス', options: ['正立', '反転（インバート）'] },
+    { key: 'steep_seconds', label: '浸漬時間 (秒)', type: 'number', group: 'エアロプレス' },
+    { key: 'press_seconds', label: 'プレス時間 (秒)', type: 'number', group: 'エアロプレス' },
+    // サイフォン
+    { key: 'heat_seconds', label: '加熱時間 (秒)', type: 'number', group: 'サイフォン' },
+    // マキネッタ
+    { key: 'heat_notes', label: '火加減メモ', type: 'text', group: 'マキネッタ' },
+    { key: 'brew_seconds', label: '抽出時間 (秒)', type: 'number', group: 'マキネッタ' },
+    // 水出し
+    { key: 'steep_hours', label: '浸漬時間 (時間)', type: 'number', group: '水出し' },
+    // TDS・収率
+    { key: 'tds', label: 'TDS (%)', type: 'number', step: '0.01', group: 'TDS・収率' },
+    { key: 'ey', label: '抽出収率 (%)', type: 'number', step: '0.1', group: 'TDS・収率' },
+    // 水質
+    { key: 'gh', label: 'GH (mg/L)', type: 'number', group: '水質' },
+    { key: 'kh', label: 'KH (mg/L)', type: 'number', group: '水質' },
+    { key: 'mineral_recipe', label: 'ミネラルレシピ', type: 'text', group: '水質' },
+    // 評価（WBrC）
+    { key: 'wbrc_aroma', label: 'Aroma（香り）', type: 'number', min: 0, max: 9, group: '評価（WBrC）' },
+    { key: 'wbrc_flavor', label: 'Flavor（フレーバー）', type: 'number', min: 0, max: 9, group: '評価（WBrC）' },
+    { key: 'wbrc_aftertaste', label: 'Aftertaste（後味）', type: 'number', min: 0, max: 9, group: '評価（WBrC）' },
+    { key: 'wbrc_acidity', label: 'Acidity（酸味）', type: 'number', min: 0, max: 9, group: '評価（WBrC）' },
+    { key: 'wbrc_sweetness', label: 'Sweetness（甘さ）', type: 'number', min: 0, max: 9, group: '評価（WBrC）' },
+    { key: 'wbrc_mouthfeel', label: 'Mouthfeel（口当たり）', type: 'number', min: 0, max: 9, group: '評価（WBrC）' },
+    { key: 'wbrc_overall', label: 'Overall（総合）', type: 'number', min: 0, max: 9, group: '評価（WBrC）' },
+    // その他
+    { key: 'flavor_notes', label: 'フレーバーメモ', type: 'text', group: 'その他' },
+  ];
+
+  const QUICK_NOTES_KEY = 'coffeeAppQuickNotes';
+  function loadQuickNotes() {
+    try { return JSON.parse(localStorage.getItem(QUICK_NOTES_KEY) || '[]'); } catch { return []; }
+  }
+  function saveQuickNotesToStorage(list) {
+    localStorage.setItem(QUICK_NOTES_KEY, JSON.stringify(list));
+  }
+  let quickNotes = loadQuickNotes();
+
+  function todayLocalDate() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  const quickModalOverlay = document.getElementById('quick-modal-overlay');
+  const quickBeanInput = document.getElementById('quick-bean-input');
+  const quickMemoInput = document.getElementById('quick-memo-input');
+  const quickStarRatingEl = document.getElementById('quick-star-rating');
+  const quickExtraFieldsEl = document.getElementById('quick-extra-fields');
+  const quickAddFieldSelect = document.getElementById('quick-add-field-select');
+  const quickNotesListEl = document.getElementById('quick-notes-list');
+  const quickNotesEmptyEl = document.getElementById('quick-notes-empty');
+
+  let quickRating = 0;
+  function setQuickRating(n) {
+    quickRating = n;
+    [...quickStarRatingEl.querySelectorAll('.star-btn')].forEach(btn => {
+      btn.classList.toggle('filled', Number(btn.dataset.star) <= n);
+    });
+  }
+  quickStarRatingEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('.star-btn');
+    if (!btn) return;
+    const n = Number(btn.dataset.star);
+    setQuickRating(n === quickRating ? 0 : n); // clicking the lit star again clears it
+  });
+
+  function renderQuickAddSelect() {
+    const usedKeys = [...quickExtraFieldsEl.querySelectorAll('[data-quick-field]')].map(el => el.dataset.quickField);
+    quickAddFieldSelect.innerHTML = '<option value="">＋ 項目を追加…</option>';
+    const available = QUICK_ADDABLE_FIELDS.filter(f => !usedKeys.includes(f.key));
+    const groups = [];
+    available.forEach(f => { if (!groups.includes(f.group)) groups.push(f.group); });
+    groups.forEach(groupName => {
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = groupName;
+      available.filter(f => f.group === groupName).forEach(f => {
+        const opt = document.createElement('option');
+        opt.value = f.key;
+        opt.textContent = f.label;
+        optgroup.appendChild(opt);
+      });
+      quickAddFieldSelect.appendChild(optgroup);
+    });
+  }
+
+  function addQuickField(key) {
+    const def = QUICK_ADDABLE_FIELDS.find(f => f.key === key);
+    if (!def) return;
+    const row = document.createElement('div');
+    row.className = 'quick-extra-field';
+    row.dataset.quickField = key;
+    const attrs = [
+      def.step !== undefined ? `step="${def.step}"` : '',
+      def.min !== undefined ? `min="${def.min}"` : '',
+      def.max !== undefined ? `max="${def.max}"` : '',
+    ].filter(Boolean).join(' ');
+    const inputHtml = def.type === 'select'
+      ? `<select data-quick-value>${def.options.map(o => `<option>${o}</option>`).join('')}</select>`
+      : `<input type="${def.type}" data-quick-value ${attrs} />`;
+    row.innerHTML = `
+      <div class="field"><label>${def.label}</label>${inputHtml}</div>
+      <button class="icon-btn" type="button" data-remove-quick-field aria-label="この項目を削除"><span class="icon" data-icon="trash"></span></button>
+    `;
+    quickExtraFieldsEl.appendChild(row);
+    renderIcons(row);
+    renderQuickAddSelect();
+  }
+
+  quickAddFieldSelect.addEventListener('change', () => {
+    if (!quickAddFieldSelect.value) return;
+    addQuickField(quickAddFieldSelect.value);
+    quickAddFieldSelect.value = '';
+  });
+  quickExtraFieldsEl.addEventListener('click', (e) => {
+    const removeBtn = e.target.closest('[data-remove-quick-field]');
+    if (!removeBtn) return;
+    removeBtn.closest('.quick-extra-field').remove();
+    renderQuickAddSelect();
+  });
+
+  function resetQuickForm() {
+    quickBeanInput.value = '';
+    quickMemoInput.value = '';
+    setQuickRating(0);
+    quickExtraFieldsEl.innerHTML = '';
+    renderQuickAddSelect();
+  }
+  function openQuickModal() {
+    resetQuickForm();
+    quickModalOverlay.hidden = false;
+    quickBeanInput.focus();
+  }
+  function closeQuickModal() { quickModalOverlay.hidden = true; }
+
+  document.getElementById('open-quick-modal-btn').addEventListener('click', openQuickModal);
+  document.getElementById('quick-modal-close').addEventListener('click', closeQuickModal);
+  document.getElementById('quick-modal-cancel').addEventListener('click', closeQuickModal);
+  quickModalOverlay.addEventListener('click', (e) => {
+    if (e.target === quickModalOverlay) closeQuickModal();
+  });
+
+  function renderQuickNotes() {
+    quickNotesListEl.innerHTML = '';
+    quickNotes.slice(0, 6).forEach(note => {
+      const row = document.createElement('div');
+      row.className = 'brew-row';
+      const stars = note.rating ? '★'.repeat(note.rating) + '☆'.repeat(5 - note.rating) : '';
+      const extrasText = Object.entries(note.extras || {}).map(([k, v]) => {
+        const def = QUICK_ADDABLE_FIELDS.find(f => f.key === k);
+        return v ? `${def ? def.label : k}: ${v}` : null;
+      }).filter(Boolean).join('・');
+      row.innerHTML = `
+        <span>${note.date}${note.bean ? '・' + note.bean : ''}${note.memo ? '・' + note.memo : ''}${extrasText ? '・' + extrasText : ''}</span>
+        <span class="brew-method-badge">${stars || 'メモ'}</span>
+      `;
+      quickNotesListEl.appendChild(row);
+    });
+    quickNotesEmptyEl.style.display = quickNotes.length ? 'none' : 'block';
+  }
+  renderQuickNotes();
+
+  document.getElementById('quick-modal-save').addEventListener('click', () => {
+    const bean = quickBeanInput.value.trim();
+    const memo = quickMemoInput.value.trim();
+    if (!bean && !memo && !quickRating && !quickExtraFieldsEl.children.length) {
+      quickMemoInput.focus();
+      return;
+    }
+    const extras = {};
+    quickExtraFieldsEl.querySelectorAll('[data-quick-field]').forEach(row => {
+      extras[row.dataset.quickField] = row.querySelector('[data-quick-value]').value;
+    });
+    quickNotes.unshift({
+      date: todayLocalDate(),
+      bean,
+      memo,
+      rating: quickRating,
+      extras,
+    });
+    saveQuickNotesToStorage(quickNotes);
+    renderQuickNotes();
+    closeQuickModal();
+  });
+
+  // ---------- WBrC evaluation sliders ----------
+  const wbrcAxes = [
+    { id: 'aroma', label: 'Aroma（香り）' },
+    { id: 'flavor', label: 'Flavor（フレーバー）' },
+    { id: 'aftertaste', label: 'Aftertaste（後味）' },
+    { id: 'acidity', label: 'Acidity（酸味）' },
+    { id: 'sweetness', label: 'Sweetness（甘さ）' },
+    { id: 'mouthfeel', label: 'Mouthfeel（口当たり）' },
+    { id: 'overall', label: 'Overall（総合）' },
+  ];
+  const wbrcContainer = document.getElementById('wbrc-axes');
+  const wbrcTotalEl = document.getElementById('wbrc-total-score');
+  wbrcAxes.forEach(axis => {
+    const wrap = document.createElement('div');
+    wrap.className = 'wbrc-axis';
+    wrap.innerHTML = `
+      <div class="wbrc-axis-head"><span>${axis.label}</span><b data-value>6</b></div>
+      <input type="range" min="0" max="9" value="6" data-axis="${axis.id}" />
+    `;
+    wbrcContainer.appendChild(wrap);
+  });
+  function recalcWbrc() {
+    let total = 0;
+    wbrcContainer.querySelectorAll('input[type="range"]').forEach(r => total += parseInt(r.value, 10));
+    wbrcTotalEl.textContent = total;
+  }
+  wbrcContainer.addEventListener('input', (e) => {
+    if (e.target.matches('input[type="range"]')) {
+      e.target.closest('.wbrc-axis').querySelector('[data-value]').textContent = e.target.value;
+      recalcWbrc();
+    }
+  });
+  recalcWbrc();
+
+  const simpleScoreInput = document.getElementById('simple-score');
+  simpleScoreInput.addEventListener('input', () => {
+    simpleScoreInput.closest('.wbrc-axis').querySelector('[data-value]').textContent = simpleScoreInput.value;
+  });
+
+  // ---------- Settings: show/hide maniac fields ----------
+  const SETTINGS_KEY = 'coffeeAppSettings';
+  const defaultSettings = { tds: true, water: true, wbrc: true, detail: true };
+  function loadSettings() {
+    try {
+      return { ...defaultSettings, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
+    } catch {
+      return { ...defaultSettings };
+    }
+  }
+  function saveSettings(settings) {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  }
+  function applySettings() {
+    const settings = loadSettings();
+    document.querySelectorAll('[data-setting-block]').forEach(el => {
+      const key = el.dataset.settingBlock;
+      const visible = key === 'wbrc-off' ? !settings.wbrc : settings[key];
+      el.style.display = visible ? '' : 'none';
+    });
+    document.querySelectorAll('#view-settings input[data-setting]').forEach(cb => {
+      cb.checked = settings[cb.dataset.setting];
+    });
+  }
+  document.querySelectorAll('#view-settings input[data-setting]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const settings = loadSettings();
+      settings[cb.dataset.setting] = cb.checked;
+      saveSettings(settings);
+      applySettings();
+    });
+  });
+  document.getElementById('preset-simple').addEventListener('click', () => {
+    saveSettings({ tds: false, water: false, wbrc: false, detail: false });
+    applySettings();
+  });
+  document.getElementById('preset-full').addEventListener('click', () => {
+    saveSettings({ tds: true, water: true, wbrc: true, detail: true });
+    applySettings();
+  });
+  applySettings();
+
+  // ---------- Brew records: persisted data layer ----------
+  const METHOD_LABELS = {
+    drip: 'ハンドドリップ', espresso: 'エスプレッソ', frenchpress: 'フレンチプレス',
+    aeropress: 'エアロプレス', siphon: 'サイフォン', moka: 'マキネッタ', cold: '水出し',
+  };
+  const BREWS_KEY = 'coffeeAppBrews';
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function localDateStr(offsetDays = 0) {
+    const d = new Date();
+    d.setDate(d.getDate() + offsetDays);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  // First run seeds a small demo dataset so the dashboard isn't empty.
+  // Records can be deleted from the history detail view.
+  function seedBrews() {
+    return [
+      { id: 'seed-1', date: '2026-07-12', bean: 'エチオピア イルガチェフェ', method: 'drip', methodLabel: 'ハンドドリップ', dose: 15, tds: 1.42, yield: 20.8, overall: 7 },
+      { id: 'seed-2', date: '2026-07-11', bean: 'ケニア ニエリ', method: 'espresso', methodLabel: 'エスプレッソ', dose: 18, tds: 9.8, yield: 19.5, overall: 6 },
+      { id: 'seed-3', date: '2026-07-10', bean: 'コロンビア ウイラ', method: 'drip', methodLabel: 'ハンドドリップ', dose: 15, tds: 1.31, yield: 19.9, overall: 7 },
+      { id: 'seed-4', date: '2026-07-09', bean: 'エチオピア イルガチェフェ', method: 'cold', methodLabel: '水出し', dose: 55, tds: 1.10, yield: 18.2, overall: 5 },
+      { id: 'seed-5', date: '2026-07-08', bean: 'ケニア ニエリ', method: 'drip', methodLabel: 'ハンドドリップ', dose: 16, tds: 1.38, yield: 20.1, overall: 8 },
+      { id: 'seed-6', date: '2026-07-07', bean: 'グアテマラ ウエウエテナンゴ', method: 'drip', methodLabel: 'ハンドドリップ', dose: 17, tds: 1.35, yield: 20.0, overall: 6 },
+      { id: 'seed-7', date: '2026-07-06', bean: 'グアテマラ ウエウエテナンゴ', method: 'espresso', methodLabel: 'エスプレッソ', dose: 19, tds: 9.5, yield: 19.0, overall: 6 },
+      { id: 'seed-8', date: '2026-07-05', bean: 'グアテマラ ウエウエテナンゴ', method: 'drip', methodLabel: 'ハンドドリップ', dose: 18, tds: 1.30, yield: 19.5, overall: 7 },
+      { id: 'seed-9', date: '2026-07-04', bean: 'グアテマラ ウエウエテナンゴ', method: 'drip', methodLabel: 'ハンドドリップ', dose: 16, tds: 1.32, yield: 19.8, overall: 7 },
+      { id: 'seed-10', date: '2026-07-03', bean: 'グアテマラ ウエウエテナンゴ', method: 'drip', methodLabel: 'ハンドドリップ', dose: 15, tds: 1.33, yield: 19.7, overall: 6 },
+      { id: 'seed-11', date: '2026-07-02', bean: 'パナマ ゲイシャ', method: 'drip', methodLabel: 'ハンドドリップ', dose: 17, tds: 1.40, yield: 20.5, overall: 9 },
+      { id: 'seed-12', date: '2026-07-01', bean: 'パナマ ゲイシャ', method: 'drip', methodLabel: 'ハンドドリップ', dose: 18, tds: 1.38, yield: 20.2, overall: 8 },
+    ];
+  }
+
+  function loadBrews() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(BREWS_KEY));
+      if (Array.isArray(raw)) return raw;
+    } catch {}
+    return null;
+  }
+  function saveBrewsToStorage() {
+    localStorage.setItem(BREWS_KEY, JSON.stringify(brews));
+  }
+  let brews = loadBrews();
+  if (!brews) { brews = seedBrews(); saveBrewsToStorage(); }
+
+  function sortedBrews() {
+    return [...brews].sort((a, b) => (b.datetime || b.date).localeCompare(a.datetime || a.date));
+  }
+
+  const recentBrewsEl = document.getElementById('recent-brews');
+  function renderRecentBrews() {
+    recentBrewsEl.innerHTML = '';
+    const list = sortedBrews().slice(0, 4);
+    list.forEach(b => {
+      const row = document.createElement('div');
+      row.className = 'brew-row';
+      row.innerHTML = `
+        <span>${b.date}・${escapeHtml(b.bean || '（豆未記入）')}${b.draft ? '<span class="draft-badge">下書き</span>' : ''}</span>
+        <span class="brew-method-badge">${b.methodLabel || METHOD_LABELS[b.method] || ''}</span>
+      `;
+      row.addEventListener('click', () => openDetailModal(b.id));
+      recentBrewsEl.appendChild(row);
+    });
+    if (!list.length) {
+      recentBrewsEl.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">まだ記録がありません</p>';
+    }
+  }
+
+  // ---------- History (filterable) ----------
+  const historyBody = document.getElementById('history-body');
+  const historyFilterMethod = document.getElementById('history-filter-method');
+  const historyFilterBean = document.getElementById('history-filter-bean');
+  const historyFilterPeriod = document.getElementById('history-filter-period');
+
+  function renderHistoryFilters() {
+    const prevMethod = historyFilterMethod.value;
+    historyFilterMethod.innerHTML = '<option value="all">すべての抽出方法</option>';
+    Object.entries(METHOD_LABELS).forEach(([key, label]) => {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = label;
+      historyFilterMethod.appendChild(opt);
+    });
+    if ([...historyFilterMethod.options].some(o => o.value === prevMethod)) historyFilterMethod.value = prevMethod;
+
+    const prevBean = historyFilterBean.value;
+    const names = [];
+    beans.forEach(b => { if (!names.includes(b.name)) names.push(b.name); });
+    brews.forEach(b => { if (b.bean && !names.includes(b.bean)) names.push(b.bean); });
+    historyFilterBean.innerHTML = '<option value="all">すべての豆</option>';
+    names.forEach(n => {
+      const opt = document.createElement('option');
+      opt.value = n;
+      opt.textContent = n;
+      historyFilterBean.appendChild(opt);
+    });
+    if ([...historyFilterBean.options].some(o => o.value === prevBean)) historyFilterBean.value = prevBean;
+  }
+
+  function renderHistory() {
+    historyBody.innerHTML = '';
+    const method = historyFilterMethod.value || 'all';
+    const beanName = historyFilterBean.value || 'all';
+    const period = historyFilterPeriod.value || '30';
+    let list = sortedBrews();
+    if (method !== 'all') list = list.filter(b => b.method === method);
+    if (beanName !== 'all') list = list.filter(b => b.bean === beanName);
+    if (period !== 'all') list = list.filter(b => b.date >= localDateStr(-(Number(period) - 1)));
+    list.forEach(b => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${b.date}</td>
+        <td>${escapeHtml(b.bean || '—')}${b.draft ? '<span class="draft-badge">下書き</span>' : ''}</td>
+        <td>${b.methodLabel || METHOD_LABELS[b.method] || ''}</td>
+        <td>${typeof b.tds === 'number' ? b.tds.toFixed(2) + '%' : '—'}</td>
+        <td>${typeof b.yield === 'number' ? b.yield.toFixed(1) + '%' : '—'}</td>
+        <td class="score-pill">${typeof b.overall === 'number' ? b.overall + '/9' : '—'}</td>
+      `;
+      tr.addEventListener('click', () => openDetailModal(b.id));
+      historyBody.appendChild(tr);
+    });
+    if (!list.length) {
+      historyBody.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);">該当する記録がありません</td></tr>';
+    }
+  }
+  [historyFilterMethod, historyFilterBean, historyFilterPeriod].forEach(sel => sel.addEventListener('change', renderHistory));
+
+  // ---------- Dashboard stats (computed from real records) ----------
+  function renderDashboardStats() {
+    const cutoff7 = localDateStr(-6);
+    document.getElementById('stat-week-count').textContent = brews.filter(b => b.date >= cutoff7).length;
+
+    const eyVals = brews.filter(b => !b.draft && typeof b.yield === 'number' && isFinite(b.yield)).map(b => b.yield);
+    document.getElementById('stat-avg-ey').textContent =
+      eyVals.length ? (eyVals.reduce((a, v) => a + v, 0) / eyVals.length).toFixed(1) : '--';
+
+    // Espresso/moka TDS lives on a different scale, so it would distort the average.
+    const tdsVals = brews
+      .filter(b => !b.draft && typeof b.tds === 'number' && isFinite(b.tds) && b.method !== 'espresso' && b.method !== 'moka')
+      .map(b => b.tds);
+    document.getElementById('stat-avg-tds').textContent =
+      tdsVals.length ? (tdsVals.reduce((a, v) => a + v, 0) / tdsVals.length).toFixed(2) : '--';
+
+    document.getElementById('stat-bean-count').textContent = beans.filter(b => beanRemainingGrams(b) > 0).length;
+  }
+
+  // ---------- Sparkline (brew count, last 14 days) ----------
+  const spark = document.getElementById('sparkline');
+  const SPARK_NS = 'http://www.w3.org/2000/svg';
+  function renderSparkline() {
+    spark.innerHTML = '';
+    const days = [];
+    for (let i = 13; i >= 0; i--) days.push(localDateStr(-i));
+    const sparkData = days.map(d => brews.filter(b => b.date === d).length);
+    const w = 280, h = 60, pad = 6;
+    const maxVal = Math.max(...sparkData, 1);
+    const stepX = (w - pad * 2) / (sparkData.length - 1);
+    const points = sparkData.map((v, i) => {
+      const x = pad + i * stepX;
+      const y = h - pad - (v / maxVal) * (h - pad * 2);
+      return [x, y];
+    });
+    const pathD = points.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+    const path = document.createElementNS(SPARK_NS, 'path');
+    path.setAttribute('d', pathD);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', 'var(--brand)');
+    path.setAttribute('stroke-width', '2');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    spark.appendChild(path);
+    const lastPoint = points[points.length - 1];
+    const dot = document.createElementNS(SPARK_NS, 'circle');
+    dot.setAttribute('cx', lastPoint[0]);
+    dot.setAttribute('cy', lastPoint[1]);
+    dot.setAttribute('r', '4');
+    dot.setAttribute('fill', 'var(--brand)');
+    spark.appendChild(dot);
+  }
+
+  // Re-render every data-driven view; safe to call after any data mutation.
+  function refreshDataViews() {
+    renderDashboardStats();
+    renderRecentBrews();
+    renderSparkline();
+    renderHistoryFilters();
+    renderHistory();
+    renderBeanDatalist();
+    renderBeanAlerts();
+    renderBeanGrid();
+  }
+
+  // ---------- Bean inventory: persisted data layer ----------
+  const BEANS_KEY = 'coffeeAppBeans';
+  function loadBeans() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(BEANS_KEY));
+      if (Array.isArray(raw)) return raw;
+    } catch {}
+    return null;
+  }
+  function saveBeansToStorage() {
+    localStorage.setItem(BEANS_KEY, JSON.stringify(beans));
+  }
+  let beans = loadBeans() || [];
+  // Migration safety net for beans saved before ids existed (needed for delete-by-id).
+  let beansNeedResave = false;
+  beans.forEach(b => { if (!b.id) { b.id = 'bean' + Date.now() + Math.random().toString(36).slice(2); beansNeedResave = true; } });
+  if (beansNeedResave) saveBeansToStorage();
+
+  // Roast age is computed from the stored roast date at render time,
+  // so it keeps aging correctly instead of freezing at save time.
+  function beanRoastDays(bean) {
+    if (!bean.roastDate) return null;
+    const days = Math.floor((new Date(localDateStr()) - new Date(bean.roastDate)) / 86400000);
+    return days >= 0 ? days : null;
+  }
+
+  // Remaining stock is derived from real usage — purchased weight minus the
+  // sum of dose (g) across every brew record logged against that bean — plus
+  // an optional manual adjustment (bean.adjustment) for corrections that
+  // logged brews don't capture (spilled beans, gifted some away, etc.).
+  function beanUsedGrams(beanName) {
+    return brews.filter(b => b.bean === beanName).reduce((sum, b) => sum + (b.dose || 0), 0);
+  }
+  function beanDerivedRemainingGrams(bean) {
+    return Math.max(0, (bean.purchaseWeight || 0) - beanUsedGrams(bean.name));
+  }
+  function beanRemainingGrams(bean) {
+    return Math.max(0, beanDerivedRemainingGrams(bean) + (bean.adjustment || 0));
+  }
+  function beanStockPct(bean) {
+    if (!bean.purchaseWeight) return 0;
+    return Math.min(100, Math.round((beanRemainingGrams(bean) / bean.purchaseWeight) * 100));
+  }
+
+  const beanInput = document.getElementById('bean-input');
+  const beanDatalist = document.getElementById('bean-datalist');
+  const beanAlertsEl = document.getElementById('bean-alerts');
+  const beanGridActiveEl = document.getElementById('bean-grid-active');
+  const beanGridUsedEl = document.getElementById('bean-grid-used');
+  const beanGridActiveEmptyEl = document.getElementById('bean-grid-active-empty');
+  const beanGridUsedEmptyEl = document.getElementById('bean-grid-used-empty');
+
+  function renderBeanDatalist() {
+    beanDatalist.innerHTML = '';
+    beans.forEach(b => {
+      const option = document.createElement('option');
+      option.value = b.name;
+      beanDatalist.appendChild(option);
+    });
+  }
+
+  function renderBeanAlerts() {
+    beanAlertsEl.innerHTML = '';
+    beans.filter(b => beanStockPct(b) <= 20).forEach(b => {
+      const row = document.createElement('div');
+      row.className = 'bean-alert';
+      row.innerHTML = `<span>${b.name}</span><span class="badge-warning">残り${beanRemainingGrams(b)}g（${beanStockPct(b)}%）</span>`;
+      beanAlertsEl.appendChild(row);
+    });
+    if (!beanAlertsEl.children.length) {
+      beanAlertsEl.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">残りが少ない豆はありません</p>';
+    }
+  }
+
+  function buildBeanCard(b) {
+    const pct = beanStockPct(b);
+    const remaining = beanRemainingGrams(b);
+    const roastDays = beanRoastDays(b);
+    const card = document.createElement('div');
+    card.className = 'card bean-card';
+    card.innerHTML = `
+      <div class="bean-card-head">
+        <div>
+          <div class="bean-name">${escapeHtml(b.name)}</div>
+          <div class="bean-origin">${escapeHtml(b.origin)}・${escapeHtml(b.roast)}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px;">
+          ${pct > 0 && pct <= 20 ? '<span class="badge-warning">残量少</span>' : ''}
+          <button class="icon-btn" type="button" data-adjust-stock="${escapeHtml(b.id)}" aria-label="残量を調整" title="残量を調整"><span class="icon" data-icon="scale"></span></button>
+          <button class="icon-btn" type="button" data-delete-bean="${escapeHtml(b.id)}" aria-label="この豆を削除" title="削除"><span class="icon" data-icon="trash"></span></button>
+        </div>
+      </div>
+      <div class="bean-meta-row"><span>焙煎からの経過</span><span>${roastDays != null ? roastDays + '日' : '—'}</span></div>
+      <div class="bean-meta-row"><span>購入量</span><span>${b.purchaseWeight}g</span></div>
+      <div class="bean-meta-row"><span>残量</span><span>${remaining}g（${pct}%）</span></div>
+      <div class="stock-bar-track"><div class="stock-bar-fill ${pct <= 20 ? 'low' : ''}" style="width:${pct}%;"></div></div>
+    `;
+    renderIcons(card);
+    return card;
+  }
+
+  function renderBeanGrid() {
+    beanGridActiveEl.innerHTML = '';
+    beanGridUsedEl.innerHTML = '';
+    const active = beans.filter(b => beanStockPct(b) > 0);
+    const used = beans.filter(b => beanStockPct(b) === 0);
+    active.forEach(b => beanGridActiveEl.appendChild(buildBeanCard(b)));
+    used.forEach(b => beanGridUsedEl.appendChild(buildBeanCard(b)));
+    beanGridActiveEmptyEl.style.display = active.length ? 'none' : 'block';
+    beanGridUsedEmptyEl.style.display = used.length ? 'none' : 'block';
+  }
+
+  function deleteBean(id) {
+    const bean = beans.find(b => b.id === id);
+    if (!bean) return;
+    if (!confirm(`「${bean.name}」を削除しますか？`)) return;
+    beans = beans.filter(b => b.id !== id);
+    saveBeansToStorage();
+    refreshDataViews();
+    showToast('豆を削除しました');
+  }
+  [beanGridActiveEl, beanGridUsedEl].forEach(el => {
+    el.addEventListener('click', (e) => {
+      const deleteBtn = e.target.closest('[data-delete-bean]');
+      if (deleteBtn) { deleteBean(deleteBtn.dataset.deleteBean); return; }
+      const adjustBtn = e.target.closest('[data-adjust-stock]');
+      if (adjustBtn) { openStockModal(adjustBtn.dataset.adjustStock); }
+    });
+  });
+
+  // ---------- Adjust bean stock modal ----------
+  const stockModalOverlay = document.getElementById('stock-modal-overlay');
+  const stockModalHint = document.getElementById('stock-modal-hint');
+  const stockModalInput = document.getElementById('stock-modal-input');
+  let stockModalBeanId = null;
+
+  function openStockModal(id) {
+    const bean = beans.find(b => b.id === id);
+    if (!bean) return;
+    stockModalBeanId = id;
+    stockModalHint.textContent = `${bean.name}／購入量 ${bean.purchaseWeight}g／使用量（記録から算出） ${beanUsedGrams(bean.name)}g`;
+    stockModalInput.value = beanRemainingGrams(bean);
+    stockModalOverlay.hidden = false;
+    stockModalInput.focus();
+  }
+  function closeStockModal() { stockModalOverlay.hidden = true; stockModalBeanId = null; }
+
+  document.getElementById('stock-modal-close').addEventListener('click', closeStockModal);
+  document.getElementById('stock-modal-cancel').addEventListener('click', closeStockModal);
+  stockModalOverlay.addEventListener('click', (e) => {
+    if (e.target === stockModalOverlay) closeStockModal();
+  });
+  document.getElementById('stock-modal-save').addEventListener('click', () => {
+    const bean = beans.find(b => b.id === stockModalBeanId);
+    if (!bean) return;
+    const newRemaining = Math.max(0, parseInt(stockModalInput.value, 10) || 0);
+    bean.adjustment = newRemaining - beanDerivedRemainingGrams(bean);
+    saveBeansToStorage();
+    refreshDataViews();
+    closeStockModal();
+    showToast('残量を更新しました');
+  });
+
+  refreshDataViews();
+  if (beans.length) beanInput.value = beans[0].name;
+
+  // ---------- Add bean modal ----------
+  const beanModalOverlay = document.getElementById('bean-modal-overlay');
+  const beanFormName = document.getElementById('bean-form-name');
+  const beanFormCountry = document.getElementById('bean-form-country');
+  const beanFormProcess = document.getElementById('bean-form-process');
+  const beanFormProcessOtherWrap = document.getElementById('bean-form-process-other-wrap');
+  const beanFormProcessOther = document.getElementById('bean-form-process-other');
+  const beanFormRoast = document.getElementById('bean-form-roast');
+  const beanFormRoastDate = document.getElementById('bean-form-roast-date');
+  const beanFormPurchaseWeight = document.getElementById('bean-form-purchase-weight');
+
+  // The process dropdown grows over time: base options plus any custom value
+  // typed via "その他" on a previous bean, so it only has to be typed once.
+  const BASE_PROCESS_OPTIONS = ['Washed', 'Natural', 'Honey', 'Anaerobic'];
+  const UNKNOWN_PROCESS = '不明';
+  function knownProcessOptions() {
+    const learned = [];
+    beans.forEach(b => {
+      if (b.process && b.process !== UNKNOWN_PROCESS && !BASE_PROCESS_OPTIONS.includes(b.process) && !learned.includes(b.process)) learned.push(b.process);
+    });
+    return [...BASE_PROCESS_OPTIONS, ...learned];
+  }
+  function renderProcessOptions(selected) {
+    const prev = selected !== undefined ? selected : beanFormProcess.value;
+    beanFormProcess.innerHTML = '';
+    knownProcessOptions().forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p;
+      opt.textContent = p;
+      beanFormProcess.appendChild(opt);
+    });
+    const unknownOpt = document.createElement('option');
+    unknownOpt.value = UNKNOWN_PROCESS;
+    unknownOpt.textContent = UNKNOWN_PROCESS;
+    beanFormProcess.appendChild(unknownOpt);
+    const otherOpt = document.createElement('option');
+    otherOpt.value = 'other';
+    otherOpt.textContent = 'その他';
+    beanFormProcess.appendChild(otherOpt);
+    if ([...beanFormProcess.options].some(o => o.value === prev)) beanFormProcess.value = prev;
+  }
+
+  function updateProcessOtherVisibility() {
+    beanFormProcessOtherWrap.hidden = beanFormProcess.value !== 'other';
+  }
+  beanFormProcess.addEventListener('change', updateProcessOtherVisibility);
+  renderProcessOptions('Washed');
+
+  function openBeanModal() {
+    renderProcessOptions('Washed');
+    beanModalOverlay.hidden = false;
+    beanFormName.focus();
+  }
+  function closeBeanModal() { beanModalOverlay.hidden = true; }
+  function resetBeanForm() {
+    beanFormName.value = '';
+    beanFormCountry.value = '';
+    renderProcessOptions('Washed');
+    beanFormProcessOther.value = '';
+    updateProcessOtherVisibility();
+    beanFormRoast.value = '中煎り';
+    beanFormRoastDate.value = '';
+    beanFormPurchaseWeight.value = '200';
+  }
+
+  document.getElementById('open-bean-modal-btn').addEventListener('click', openBeanModal);
+  document.getElementById('bean-modal-close').addEventListener('click', closeBeanModal);
+  document.getElementById('bean-modal-cancel').addEventListener('click', closeBeanModal);
+  beanModalOverlay.addEventListener('click', (e) => {
+    if (e.target === beanModalOverlay) closeBeanModal();
+  });
+
+  document.getElementById('bean-modal-save').addEventListener('click', () => {
+    const name = beanFormName.value.trim();
+    if (!name) { beanFormName.focus(); return; }
+
+    const process = beanFormProcess.value === 'other'
+      ? beanFormProcessOther.value.trim()
+      : beanFormProcess.value;
+    const originParts = [beanFormCountry.value.trim(), process].filter(Boolean);
+    const purchaseWeight = Math.max(0, parseInt(beanFormPurchaseWeight.value, 10) || 0);
+
+    beans.push({
+      id: 'bean' + Date.now() + Math.random().toString(36).slice(2),
+      name,
+      origin: originParts.join(' / '),
+      process,
+      roast: beanFormRoast.value,
+      roastDate: beanFormRoastDate.value || null,
+      purchaseWeight,
+    });
+    saveBeansToStorage();
+
+    refreshDataViews();
+    resetBeanForm();
+    closeBeanModal();
+  });
+
+  // ---------- Flavor wheel (embedded modal, attached to the taste-notes field) ----------
+  const flavorWheel = [
+    { id: 'floral', name: 'フローラル', color: 'var(--series-floral)', subs: [
+        { id: 'floral-flower', name: '花系', examples: ['ジャスミン','ローズ','カモミール'] },
+        { id: 'floral-tea', name: '紅茶系', examples: ['ブラックティー'] },
+    ]},
+    { id: 'fruity', name: 'フルーティ', color: 'var(--series-fruity)', subs: [
+        { id: 'fruity-berry', name: 'ベリー系', examples: ['ブルーベリー','ラズベリー','ストロベリー'] },
+        { id: 'fruity-dried', name: 'ドライフルーツ系', examples: ['レーズン','プルーン'] },
+        { id: 'fruity-citrus', name: '柑橘系', examples: ['オレンジ','レモン','グレープフルーツ'] },
+        { id: 'fruity-other', name: 'その他フルーツ', examples: ['りんご','桃','ぶどう'] },
+    ]},
+    { id: 'sour-fermented', name: 'サワー・発酵', color: 'var(--series-sour)', subs: [
+        { id: 'sour', name: '酸味系', examples: ['クエン酸感','りんご酸感'] },
+        { id: 'fermented', name: '発酵系', examples: ['ワイニー','発酵果実','アルコール感'] },
+    ]},
+    { id: 'green-vegetative', name: 'グリーン', color: 'var(--series-green)', subs: [
+        { id: 'green', name: '青草・野菜系', examples: ['青草','ハーブ','豆っぽさ'] },
+    ]},
+    { id: 'roasted', name: 'ロースト', color: 'var(--series-roasted)', subs: [
+        { id: 'burnt', name: '焦げ系', examples: ['スモーキー','灰','焦げ'] },
+        { id: 'cereal', name: '穀物系', examples: ['麦芽','トースト','穀物'] },
+    ]},
+    { id: 'spices', name: 'スパイス', color: 'var(--series-spices)', subs: [
+        { id: 'brown-spice', name: 'ブラウンスパイス', examples: ['シナモン','クローブ','ナツメグ'] },
+        { id: 'pungent', name: '刺激系', examples: ['ブラックペッパー的な刺激感'] },
+    ]},
+    { id: 'nutty-cocoa', name: 'ナッツ・カカオ', color: 'var(--series-nutty)', subs: [
+        { id: 'nutty', name: 'ナッツ系', examples: ['アーモンド','ヘーゼルナッツ','ピーナッツ'] },
+        { id: 'cocoa', name: 'カカオ系', examples: ['ダークチョコレート','ミルクチョコレート'] },
+    ]},
+    { id: 'sweet', name: 'スイート', color: 'var(--series-sweet)', subs: [
+        { id: 'sugar', name: '砂糖系', examples: ['キャラメル','メープルシロップ','はちみつ'] },
+        { id: 'vanilla', name: 'バニラ系', examples: ['バニラ'] },
+    ]},
+    { id: 'other', name: 'その他', color: 'var(--series-other)', subs: [
+        { id: 'papery', name: '紙・カビ系', examples: ['紙っぽさ','カビ臭'] },
+        { id: 'chemical', name: '薬品系', examples: ['ゴム臭','薬品っぽさ'] },
+    ]},
+  ];
+
+  const fwCx = 300, fwCy = 300;
+  const fwRing1 = { inner: 70, outer: 155 };
+  const fwRing2 = { inner: 160, outer: 235 };
+  const fwGap = 1.2;
+  const fwNS = 'http://www.w3.org/2000/svg';
+
+  function fwPolarToCartesian(r, angleDeg) {
+    const rad = (angleDeg - 90) * Math.PI / 180;
+    return { x: fwCx + r * Math.cos(rad), y: fwCy + r * Math.sin(rad) };
+  }
+  function fwArcPath(innerR, outerR, startAngle, endAngle) {
+    const largeArc = (endAngle - startAngle) > 180 ? 1 : 0;
+    const p1 = fwPolarToCartesian(outerR, startAngle);
+    const p2 = fwPolarToCartesian(outerR, endAngle);
+    const p3 = fwPolarToCartesian(innerR, endAngle);
+    const p4 = fwPolarToCartesian(innerR, startAngle);
+    return `M ${p1.x} ${p1.y} A ${outerR} ${outerR} 0 ${largeArc} 1 ${p2.x} ${p2.y} L ${p3.x} ${p3.y} A ${innerR} ${innerR} 0 ${largeArc} 0 ${p4.x} ${p4.y} Z`;
+  }
+
+  const flavorSvg = document.getElementById('flavor-wheel-svg');
+  const flavorTooltip = document.getElementById('flavor-tooltip');
+  const flavorPanelTitle = document.getElementById('flavor-panel-title');
+  const flavorExamplesEl = document.getElementById('flavor-examples');
+  const flavorNotesRow = document.getElementById('flavor-notes-row');
+  const flavorNotesEmptyHint = document.getElementById('flavor-notes-empty-hint');
+
+  const selectedFlavorNotes = new Map(); // example text -> color
+
+  const fwAnglePerCategory = 360 / flavorWheel.length;
+
+  flavorWheel.forEach((cat, i) => {
+    const start = i * fwAnglePerCategory + fwGap / 2;
+    const end = (i + 1) * fwAnglePerCategory - fwGap / 2;
+
+    const path = document.createElementNS(fwNS, 'path');
+    path.setAttribute('d', fwArcPath(fwRing1.inner, fwRing1.outer, start, end));
+    path.setAttribute('class', 'fw-arc');
+    path.setAttribute('fill', cat.color);
+    path.addEventListener('mouseenter', (e) => fwShowTooltip(e, cat.name));
+    path.addEventListener('mousemove', fwMoveTooltip);
+    path.addEventListener('mouseleave', fwHideTooltip);
+    path.addEventListener('click', () => fwSelectCategory(cat));
+    flavorSvg.appendChild(path);
+
+    const mid = (start + end) / 2;
+    const labelPos = fwPolarToCartesian((fwRing1.inner + fwRing1.outer) / 2, mid);
+    const label = document.createElementNS(fwNS, 'text');
+    label.setAttribute('x', labelPos.x);
+    label.setAttribute('y', labelPos.y);
+    label.setAttribute('class', 'fw-ring1-label');
+    label.textContent = cat.name;
+    flavorSvg.appendChild(label);
+
+    const subAngle = (end - start) / cat.subs.length;
+    cat.subs.forEach((sub, j) => {
+      const subStart = start + j * subAngle + fwGap / 4;
+      const subEnd = start + (j + 1) * subAngle - fwGap / 4;
+      const subPath = document.createElementNS(fwNS, 'path');
+      subPath.setAttribute('d', fwArcPath(fwRing2.inner, fwRing2.outer, subStart, subEnd));
+      subPath.setAttribute('class', 'fw-arc');
+      subPath.setAttribute('fill', cat.color);
+      subPath.setAttribute('opacity', '0.55');
+      subPath.addEventListener('mouseenter', (e) => fwShowTooltip(e, `${cat.name} > ${sub.name}`));
+      subPath.addEventListener('mousemove', fwMoveTooltip);
+      subPath.addEventListener('mouseleave', fwHideTooltip);
+      subPath.addEventListener('click', () => fwSelectSub(cat, sub));
+      flavorSvg.appendChild(subPath);
+    });
+  });
+
+  function fwShowTooltip(e, text) {
+    flavorTooltip.textContent = text;
+    flavorTooltip.classList.add('visible');
+    fwMoveTooltip(e);
+  }
+  function fwMoveTooltip(e) {
+    flavorTooltip.style.left = e.clientX + 'px';
+    flavorTooltip.style.top = e.clientY + 'px';
+  }
+  function fwHideTooltip() {
+    flavorTooltip.classList.remove('visible');
+  }
+
+  function fwSelectCategory(cat) {
+    flavorPanelTitle.textContent = `${cat.name} のサブカテゴリを選んでください`;
+    flavorExamplesEl.innerHTML = '';
+    cat.subs.forEach(sub => {
+      const btn = document.createElement('div');
+      btn.className = 'fw-example-chip';
+      btn.style.setProperty('--chip-color', cat.color);
+      btn.textContent = sub.name;
+      btn.addEventListener('click', () => fwSelectSub(cat, sub));
+      flavorExamplesEl.appendChild(btn);
+    });
+  }
+
+  function fwSelectSub(cat, sub) {
+    flavorPanelTitle.textContent = `${cat.name} > ${sub.name} の代表例`;
+    flavorExamplesEl.innerHTML = '';
+    sub.examples.forEach(example => {
+      const chip = document.createElement('div');
+      chip.className = 'fw-example-chip';
+      chip.style.setProperty('--chip-color', cat.color);
+      chip.textContent = example;
+      if (selectedFlavorNotes.has(example)) chip.classList.add('selected');
+      chip.addEventListener('click', () => fwToggleNote(example, cat.color, chip));
+      flavorExamplesEl.appendChild(chip);
+    });
+  }
+
+  function fwToggleNote(example, color, chipEl) {
+    if (selectedFlavorNotes.has(example)) {
+      selectedFlavorNotes.delete(example);
+      chipEl.classList.remove('selected');
+    } else {
+      selectedFlavorNotes.set(example, color);
+      chipEl.classList.add('selected');
+    }
+    fwRenderFormNotes();
+  }
+
+  function fwRenderFormNotes() {
+    flavorNotesRow.innerHTML = '';
+    selectedFlavorNotes.forEach((color, example) => {
+      const chip = document.createElement('div');
+      chip.className = 'flavor-note-chip';
+      chip.style.background = color;
+      const label = document.createElement('span');
+      label.textContent = example;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = '×';
+      remove.addEventListener('click', () => {
+        selectedFlavorNotes.delete(example);
+        fwRenderFormNotes();
+        const visibleChip = [...flavorExamplesEl.children].find(c => c.textContent === example);
+        if (visibleChip) visibleChip.classList.remove('selected');
+      });
+      chip.appendChild(label);
+      chip.appendChild(remove);
+      flavorNotesRow.appendChild(chip);
+    });
+    flavorNotesEmptyHint.style.display = selectedFlavorNotes.size ? 'none' : 'block';
+  }
+  fwRenderFormNotes();
+
+  // ---------- Modal open/close ----------
+  const flavorModalOverlay = document.getElementById('flavor-modal-overlay');
+  function openFlavorModal() { flavorModalOverlay.hidden = false; }
+  function closeFlavorModal() { flavorModalOverlay.hidden = true; }
+  document.getElementById('open-flavor-wheel-btn').addEventListener('click', openFlavorModal);
+  document.getElementById('flavor-modal-close').addEventListener('click', closeFlavorModal);
+  document.getElementById('flavor-modal-done').addEventListener('click', closeFlavorModal);
+  flavorModalOverlay.addEventListener('click', (e) => {
+    if (e.target === flavorModalOverlay) closeFlavorModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (!flavorModalOverlay.hidden) closeFlavorModal();
+    if (!beanModalOverlay.hidden) closeBeanModal();
+    if (!recipeModalOverlay.hidden) closeRecipeModal();
+    if (!quickModalOverlay.hidden) closeQuickModal();
+    if (!detailModalOverlay.hidden) closeDetailModal();
+    if (!stockModalOverlay.hidden) closeStockModal();
+  });
+
+  // ---------- Toast ----------
+  const toastEl = document.getElementById('toast');
+  let toastTimer = null;
+  function showToast(message) {
+    toastEl.textContent = message;
+    toastEl.classList.add('visible');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('visible'), 2600);
+  }
+
+  // ---------- Save brew records (記録する / 下書き保存) ----------
+  const brewDatetimeInput = document.getElementById('brew-datetime');
+  function nowLocalDatetimeStr() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  brewDatetimeInput.value = nowLocalDatetimeStr();
+
+  function captureBrew(draft) {
+    const settings = loadSettings();
+    const method = activeMethod();
+    const datetime = brewDatetimeInput.value || nowLocalDatetimeStr();
+    const dose = parseFloat(doseInput.value) || null;
+    const waterVolume = parseFloat(beverageInput.value) || null;
+
+    const brew = {
+      id: 'b' + Date.now(),
+      datetime,
+      date: datetime.slice(0, 10),
+      bean: beanInput.value.trim(),
+      method,
+      methodLabel: METHOD_LABELS[method] || method,
+      dose,
+      waterVolume,
+      temp: parseFloat(tempInput.value) || null,
+      grind: grindInput.value.trim(),
+      methodFields: {},
+      draft: !!draft,
+    };
+    document.querySelectorAll(`[data-method-group="${method}"] [data-field]`).forEach(el => {
+      if (el.value !== '') brew.methodFields[el.dataset.field] = el.value;
+    });
+    if (method === 'drip') {
+      brew.pours = collectPourValues();
+      brew.totalBrewSeconds = brew.pours.reduce((s, p) => s + p.interval, 0);
+    }
+    if (settings.tds) {
+      const tds = parseFloat(tdsInput.value);
+      if (isFinite(tds) && tds > 0) {
+        brew.tds = tds;
+        if (dose > 0 && waterVolume > 0) brew.yield = Math.round((tds * waterVolume / dose) * 10) / 10;
+      }
+    }
+    if (settings.water) {
+      const gh = document.getElementById('gh-input').value;
+      const kh = document.getElementById('kh-input').value;
+      const recipe = document.getElementById('mineral-input').value.trim();
+      if (gh || kh || recipe) brew.water = { gh: gh || null, kh: kh || null, recipe: recipe || null };
+    }
+    if (settings.wbrc) {
+      const scores = {};
+      wbrcContainer.querySelectorAll('input[type="range"]').forEach(r => { scores[r.dataset.axis] = parseInt(r.value, 10); });
+      brew.evaluation = { type: 'wbrc', scores, total: Object.values(scores).reduce((a, v) => a + v, 0) };
+      brew.overall = scores.overall;
+    } else {
+      const overall = parseInt(document.getElementById('simple-score').value, 10);
+      brew.evaluation = { type: 'simple', overall };
+      brew.overall = overall;
+    }
+    brew.flavorNotes = [...selectedFlavorNotes.entries()].map(([name, color]) => ({ name, color }));
+    return brew;
+  }
+
+  // After saving, clear the per-brew parts (evaluation, flavor, timestamp) but
+  // keep the recipe parameters — the next brew is usually a variation of them.
+  function resetPerBrewInputs() {
+    wbrcContainer.querySelectorAll('input[type="range"]').forEach(r => {
+      r.value = 6;
+      r.closest('.wbrc-axis').querySelector('[data-value]').textContent = '6';
+    });
+    recalcWbrc();
+    const simple = document.getElementById('simple-score');
+    simple.value = 6;
+    simple.closest('.wbrc-axis').querySelector('[data-value]').textContent = '6';
+    selectedFlavorNotes.clear();
+    fwRenderFormNotes();
+    flavorExamplesEl.querySelectorAll('.fw-example-chip.selected').forEach(c => c.classList.remove('selected'));
+    brewDatetimeInput.value = nowLocalDatetimeStr();
+  }
+
+  function handleSaveBrew(draft) {
+    if (!draft && !beanInput.value.trim()) {
+      beanInput.focus();
+      showToast('豆の名前を入力してください');
+      return;
+    }
+    const brew = captureBrew(draft);
+    brews.unshift(brew);
+    saveBrewsToStorage();
+    resetPerBrewInputs();
+    refreshDataViews();
+    if (draft) {
+      showToast('下書きとして保存しました');
+    } else {
+      setView('history');
+      showToast('記録しました');
+    }
+  }
+  document.getElementById('save-brew-btn').addEventListener('click', () => handleSaveBrew(false));
+  document.getElementById('save-draft-btn').addEventListener('click', () => handleSaveBrew(true));
+
+  // ---------- Brew detail modal ----------
+  const detailModalOverlay = document.getElementById('detail-modal-overlay');
+  const detailBody = document.getElementById('detail-body');
+  const detailTitle = document.getElementById('detail-title');
+  let detailBrewId = null;
+
+  const METHOD_FIELD_LABELS = {
+    'basket-diameter': 'バスケット径 (mm)', 'shot-time': 'ショット時間 (秒)', 'pressure-notes': '圧力プロファイルメモ',
+    'steep-minutes': '浸漬時間 (分)', 'stir-notes': '攪拌メモ',
+    'orientation': '抽出方向', 'steep-seconds': '浸漬時間 (秒)', 'press-seconds': 'プレス時間 (秒)',
+    'heat-seconds': '加熱時間 (秒)', 'heat-notes': '火加減メモ', 'brew-seconds': '抽出時間 (秒)',
+    'steep-hours': '浸漬時間 (時間)',
+  };
+
+  function findBrew(id) { return brews.find(b => b.id === id); }
+
+  function detailRow(label, value, numeric) {
+    if (value == null || value === '') return '';
+    return `<div class="detail-row"><span class="detail-label">${escapeHtml(label)}</span><span class="detail-value${numeric ? ' num' : ''}">${escapeHtml(value)}</span></div>`;
+  }
+
+  function openDetailModal(id) {
+    const b = findBrew(id);
+    if (!b) return;
+    detailBrewId = id;
+    detailTitle.textContent = `${b.date} の記録${b.draft ? '（下書き）' : ''}`;
+    let html = '';
+    html += '<p class="detail-section-title">基本</p>';
+    html += detailRow('豆', b.bean || '—');
+    html += detailRow('抽出方法', b.methodLabel || METHOD_LABELS[b.method] || '—');
+    html += detailRow('日時', (b.datetime || b.date).replace('T', ' '));
+    if (b.dose != null || b.waterVolume != null || b.temp != null || b.grind) {
+      html += '<p class="detail-section-title">レシピ</p>';
+      html += detailRow('粉量', b.dose != null ? b.dose + ' g' : null, true);
+      html += detailRow('湯量', b.waterVolume != null ? b.waterVolume + ' cc' : null, true);
+      html += detailRow('湯温', b.temp != null ? b.temp + ' ℃' : null, true);
+      html += detailRow('挽き目', b.grind || null);
+    }
+    Object.entries(b.methodFields || {}).forEach(([k, v]) => {
+      if (v) html += detailRow(METHOD_FIELD_LABELS[k] || k, v);
+    });
+    if (b.pours && b.pours.length) {
+      html += '<p class="detail-section-title">注湯</p>';
+      b.pours.forEach((p, i) => {
+        const timing = i === 0 ? 'スタート' : `+${p.interval}秒`;
+        html += detailRow(`第${i + 1}投（${timing}）`, `${p.amount}g${p.memo ? '・' + p.memo : ''}`, true);
+      });
+      if (b.totalBrewSeconds != null) html += detailRow('トータル抽出時間', b.totalBrewSeconds + '秒', true);
+    }
+    if (b.tds != null || b.yield != null || b.water) {
+      html += '<p class="detail-section-title">計測</p>';
+      html += detailRow('TDS', b.tds != null ? b.tds.toFixed(2) + ' %' : null, true);
+      html += detailRow('抽出収率', b.yield != null ? b.yield.toFixed(1) + ' %' : null, true);
+      if (b.water) {
+        html += detailRow('GH', b.water.gh ? b.water.gh + ' mg/L' : null, true);
+        html += detailRow('KH', b.water.kh ? b.water.kh + ' mg/L' : null, true);
+        html += detailRow('ミネラルレシピ', b.water.recipe || null);
+      }
+    }
+    if (b.evaluation || b.overall != null) {
+      html += '<p class="detail-section-title">評価</p>';
+      if (b.evaluation && b.evaluation.type === 'wbrc') {
+        const axisLabels = { aroma: 'Aroma（香り）', flavor: 'Flavor（フレーバー）', aftertaste: 'Aftertaste（後味）', acidity: 'Acidity（酸味）', sweetness: 'Sweetness（甘さ）', mouthfeel: 'Mouthfeel（口当たり）', overall: 'Overall（総合）' };
+        Object.entries(b.evaluation.scores || {}).forEach(([k, v]) => { html += detailRow(axisLabels[k] || k, v + '/9', true); });
+        html += detailRow('合計', b.evaluation.total + '/63', true);
+      } else {
+        html += detailRow('総合評価', (b.overall != null ? b.overall : '—') + '/9', true);
+      }
+    }
+    if (b.flavorNotes && b.flavorNotes.length) {
+      html += '<p class="detail-section-title">フレーバーノート</p>';
+      html += '<div class="detail-flavor-chips">' +
+        b.flavorNotes.map(n => `<span class="flavor-note-chip" style="background:${n.color}">${escapeHtml(n.name)}</span>`).join('') +
+        '</div>';
+    }
+    detailBody.innerHTML = html;
+    detailModalOverlay.hidden = false;
+  }
+  function closeDetailModal() { detailModalOverlay.hidden = true; detailBrewId = null; }
+
+  document.getElementById('detail-modal-close').addEventListener('click', closeDetailModal);
+  document.getElementById('detail-close-btn').addEventListener('click', closeDetailModal);
+  detailModalOverlay.addEventListener('click', (e) => {
+    if (e.target === detailModalOverlay) closeDetailModal();
+  });
+
+  document.getElementById('detail-delete-btn').addEventListener('click', () => {
+    const b = findBrew(detailBrewId);
+    if (!b) return;
+    if (!confirm('この記録を削除しますか？')) return;
+    brews = brews.filter(x => x.id !== detailBrewId);
+    saveBrewsToStorage();
+    refreshDataViews();
+    closeDetailModal();
+    showToast('記録を削除しました');
+  });
+
+  function applyBrewToForm(b) {
+    if (b.method && METHOD_LABELS[b.method]) {
+      const tab = document.querySelector(`#method-tabs [data-method="${b.method}"]`);
+      if (tab) tab.click();
+    }
+    if (b.bean) beanInput.value = b.bean;
+    if (b.dose != null) doseInput.value = b.dose;
+    if (b.waterVolume != null) beverageInput.value = b.waterVolume;
+    if (b.temp != null) tempInput.value = b.temp;
+    if (b.grind) grindInput.value = b.grind;
+    Object.entries(b.methodFields || {}).forEach(([key, val]) => {
+      const el = document.querySelector(`[data-method-group="${b.method}"] [data-field="${key}"]`);
+      if (el && val != null) el.value = val;
+    });
+    if (b.method === 'drip' && b.pours && b.pours.length) {
+      pourCountInput.value = b.pours.length;
+      buildPourRows(b.pours.length, b.pours);
+    }
+    recalcTotalBrewTime();
+    recalcYield();
+  }
+
+  document.getElementById('detail-reproduce-btn').addEventListener('click', () => {
+    const b = findBrew(detailBrewId);
+    if (!b) return;
+    applyBrewToForm(b);
+    closeDetailModal();
+    setView('log-form');
+    showToast('レシピをフォームに反映しました');
+  });
+
+  // ---------- Data export / import ----------
+  const STORAGE_KEYS = { brews: BREWS_KEY, beans: BEANS_KEY, recipes: RECIPES_KEY, quickNotes: QUICK_NOTES_KEY, settings: SETTINGS_KEY };
+
+  document.getElementById('export-data-btn').addEventListener('click', () => {
+    const data = {};
+    Object.entries(STORAGE_KEYS).forEach(([name, key]) => {
+      try { data[name] = JSON.parse(localStorage.getItem(key)); } catch { data[name] = null; }
+    });
+    const payload = { app: 'brew-log', version: 1, exportedAt: new Date().toISOString(), data };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `brew-log-backup-${localDateStr()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('バックアップを書き出しました');
+  });
+
+  const importFileInput = document.getElementById('import-file-input');
+  document.getElementById('import-data-btn').addEventListener('click', () => importFileInput.click());
+  importFileInput.addEventListener('change', () => {
+    const file = importFileInput.files && importFileInput.files[0];
+    importFileInput.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const payload = JSON.parse(reader.result);
+        if (!payload || payload.app !== 'brew-log' || !payload.data) throw new Error('bad format');
+        if (!confirm('現在のデータをインポート内容で上書きします。よろしいですか？')) return;
+        Object.entries(STORAGE_KEYS).forEach(([name, key]) => {
+          if (payload.data[name] != null) localStorage.setItem(key, JSON.stringify(payload.data[name]));
+        });
+        location.reload();
+      } catch {
+        showToast('読み込めませんでした（ファイル形式を確認してください）');
+      }
+    };
+    reader.readAsText(file);
+  });
+</script>
+</body>
+</html>

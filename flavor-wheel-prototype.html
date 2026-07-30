@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>フレーバーホイール プロトタイプ</title>
+<style>
+  /* Chrome tokens match the app's "紺と金" (Indigo & Gold) direction, committed
+     as the single fixed theme. The 9 flavor-category hues below are a separate
+     categorical dataviz palette — they encode identity, not brand mood.
+     Tokens live on :root (not .viz-root) so <body> can read them too — a
+     child selector's custom properties don't cascade upward. */
+  :root {
+    color-scheme: dark;
+    --surface-1:      #1a1d28;
+    --page-plane:     #12141c;
+    --text-primary:   #edeef2;
+    --text-secondary: #979dab;
+    --text-muted:     #6e7383;
+    --gridline:       #2a2e3b;
+    --border:         rgba(237,238,242,0.14);
+
+    --font-display: "Yu Mincho", "Hiragino Mincho ProN", "Noto Serif JP", serif;
+    --font-body:    "Yu Gothic", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Segoe UI", sans-serif;
+
+    --series-floral:   #3987e5;
+    --series-fruity:   #199e70;
+    --series-sour:     #c98500;
+    --series-green:    #008300;
+    --series-roasted:  #9085e9;
+    --series-spices:   #e66767;
+    --series-nutty:    #d55181;
+    --series-sweet:    #d95926;
+    --series-other:    #85806f;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-body);
+    background: var(--page-plane);
+    color: var(--text-primary);
+  }
+  .viz-root {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    padding: 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-size: 19px;
+    margin: 0 0 4px;
+  }
+  .subtitle {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0 0 16px;
+  }
+  .wheel-panel {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    flex: 1 1 480px;
+    min-width: 320px;
+  }
+  .side-panel {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    flex: 1 1 320px;
+    min-width: 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .arc {
+    cursor: pointer;
+    stroke: var(--surface-1);
+    stroke-width: 2px;
+    transition: opacity 0.15s ease;
+  }
+  .arc.dim { opacity: 0.35; }
+  .ring1-label {
+    font-size: 13px;
+    font-weight: 600;
+    fill: #ffffff;
+    pointer-events: none;
+    text-anchor: middle;
+    dominant-baseline: middle;
+  }
+  .center-label {
+    font-size: 13px;
+    fill: var(--text-secondary);
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+  }
+  .section-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    margin: 0 0 8px;
+  }
+  .example-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    margin: 0 6px 6px 0;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--page-plane);
+    color: var(--text-primary);
+    font-size: 13px;
+    cursor: pointer;
+    min-height: 32px;
+  }
+  .example-chip:hover { border-color: var(--text-secondary); }
+  .example-chip.selected {
+    background: var(--chip-color, var(--series-fruity));
+    color: #ffffff;
+    border-color: transparent;
+  }
+  .empty-hint {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .tasting-notes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 32px;
+  }
+  .note-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    color: #ffffff;
+  }
+  .note-chip button {
+    all: unset;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+  }
+  .tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: var(--text-primary);
+    color: var(--surface-1);
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    opacity: 0;
+    transform: translate(-50%, -130%);
+    white-space: nowrap;
+    z-index: 10;
+    transition: opacity 0.1s ease;
+  }
+  .tooltip.visible { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="viz-root">
+  <div class="wheel-panel">
+    <h1>フレーバーホイール（簡易版・プロトタイプ）</h1>
+    <p class="subtitle">内側=大分類9系統／外側=サブカテゴリ。クリックすると右側に代表例が表示されます。</p>
+    <svg id="wheel" viewBox="0 0 600 600"></svg>
+  </div>
+  <div class="side-panel">
+    <div>
+      <p class="section-title" id="panel-title">サブカテゴリを選択してください</p>
+      <div id="examples"></div>
+    </div>
+    <div>
+      <p class="section-title">あなたのテイスティングノート</p>
+      <div id="tasting-notes" class="tasting-notes"></div>
+      <p class="empty-hint" id="notes-empty">代表例をクリックすると追加されます</p>
+    </div>
+  </div>
+</div>
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const flavorWheel = [
+  { id: 'floral', name: 'フローラル', color: 'var(--series-floral)', subs: [
+      { id: 'floral-flower', name: '花系', examples: ['ジャスミン','ローズ','カモミール'] },
+      { id: 'floral-tea', name: '紅茶系', examples: ['ブラックティー'] },
+  ]},
+  { id: 'fruity', name: 'フルーティ', color: 'var(--series-fruity)', subs: [
+      { id: 'fruity-berry', name: 'ベリー系', examples: ['ブルーベリー','ラズベリー','ストロベリー'] },
+      { id: 'fruity-dried', name: 'ドライフルーツ系', examples: ['レーズン','プルーン'] },
+      { id: 'fruity-citrus', name: '柑橘系', examples: ['オレンジ','レモン','グレープフルーツ'] },
+      { id: 'fruity-other', name: 'その他フルーツ', examples: ['りんご','桃','ぶどう'] },
+  ]},
+  { id: 'sour-fermented', name: 'サワー・発酵', color: 'var(--series-sour)', subs: [
+      { id: 'sour', name: '酸味系', examples: ['クエン酸感','りんご酸感'] },
+      { id: 'fermented', name: '発酵系', examples: ['ワイニー','発酵果実','アルコール感'] },
+  ]},
+  { id: 'green-vegetative', name: 'グリーン', color: 'var(--series-green)', subs: [
+      { id: 'green', name: '青草・野菜系', examples: ['青草','ハーブ','豆っぽさ'] },
+  ]},
+  { id: 'roasted', name: 'ロースト', color: 'var(--series-roasted)', subs: [
+      { id: 'burnt', name: '焦げ系', examples: ['スモーキー','灰','焦げ'] },
+      { id: 'cereal', name: '穀物系', examples: ['麦芽','トースト','穀物'] },
+  ]},
+  { id: 'spices', name: 'スパイス', color: 'var(--series-spices)', subs: [
+      { id: 'brown-spice', name: 'ブラウンスパイス', examples: ['シナモン','クローブ','ナツメグ'] },
+      { id: 'pungent', name: '刺激系', examples: ['ブラックペッパー的な刺激感'] },
+  ]},
+  { id: 'nutty-cocoa', name: 'ナッツ・カカオ', color: 'var(--series-nutty)', subs: [
+      { id: 'nutty', name: 'ナッツ系', examples: ['アーモンド','ヘーゼルナッツ','ピーナッツ'] },
+      { id: 'cocoa', name: 'カカオ系', examples: ['ダークチョコレート','ミルクチョコレート'] },
+  ]},
+  { id: 'sweet', name: 'スイート', color: 'var(--series-sweet)', subs: [
+      { id: 'sugar', name: '砂糖系', examples: ['キャラメル','メープルシロップ','はちみつ'] },
+      { id: 'vanilla', name: 'バニラ系', examples: ['バニラ'] },
+  ]},
+  { id: 'other', name: 'その他', color: 'var(--series-other)', subs: [
+      { id: 'papery', name: '紙・カビ系', examples: ['紙っぽさ','カビ臭'] },
+      { id: 'chemical', name: '薬品系', examples: ['ゴム臭','薬品っぽさ'] },
+  ]},
+];
+
+const cx = 300, cy = 300;
+const ring1 = { inner: 70, outer: 155 };
+const ring2 = { inner: 160, outer: 235 };
+const gap = 1.2; // degrees of visual separation between arcs
+
+function polarToCartesian(r, angleDeg) {
+  const rad = (angleDeg - 90) * Math.PI / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function arcPath(innerR, outerR, startAngle, endAngle) {
+  const largeArc = (endAngle - startAngle) > 180 ? 1 : 0;
+  const p1 = polarToCartesian(outerR, startAngle);
+  const p2 = polarToCartesian(outerR, endAngle);
+  const p3 = polarToCartesian(innerR, endAngle);
+  const p4 = polarToCartesian(innerR, startAngle);
+  return `M ${p1.x} ${p1.y} A ${outerR} ${outerR} 0 ${largeArc} 1 ${p2.x} ${p2.y} L ${p3.x} ${p3.y} A ${innerR} ${innerR} 0 ${largeArc} 0 ${p4.x} ${p4.y} Z`;
+}
+
+const svg = document.getElementById('wheel');
+const NS = 'http://www.w3.org/2000/svg';
+const tooltip = document.getElementById('tooltip');
+const panelTitle = document.getElementById('panel-title');
+const examplesEl = document.getElementById('examples');
+const notesEl = document.getElementById('tasting-notes');
+const notesEmpty = document.getElementById('notes-empty');
+
+const selectedNotes = new Map(); // example text -> color
+
+const anglePerCategory = 360 / flavorWheel.length;
+
+flavorWheel.forEach((cat, i) => {
+  const start = i * anglePerCategory + gap / 2;
+  const end = (i + 1) * anglePerCategory - gap / 2;
+
+  const path = document.createElementNS(NS, 'path');
+  path.setAttribute('d', arcPath(ring1.inner, ring1.outer, start, end));
+  path.setAttribute('class', 'arc');
+  path.setAttribute('fill', cat.color);
+  path.dataset.catId = cat.id;
+  path.addEventListener('mouseenter', (e) => showTooltip(e, cat.name));
+  path.addEventListener('mousemove', (e) => moveTooltip(e));
+  path.addEventListener('mouseleave', hideTooltip);
+  path.addEventListener('click', () => selectCategory(cat));
+  svg.appendChild(path);
+
+  const mid = (start + end) / 2;
+  const labelPos = polarToCartesian((ring1.inner + ring1.outer) / 2, mid);
+  const label = document.createElementNS(NS, 'text');
+  label.setAttribute('x', labelPos.x);
+  label.setAttribute('y', labelPos.y);
+  label.setAttribute('class', 'ring1-label');
+  label.textContent = cat.name;
+  svg.appendChild(label);
+
+  const subAngle = (end - start) / cat.subs.length;
+  cat.subs.forEach((sub, j) => {
+    const subStart = start + j * subAngle + gap / 4;
+    const subEnd = start + (j + 1) * subAngle - gap / 4;
+    const subPath = document.createElementNS(NS, 'path');
+    subPath.setAttribute('d', arcPath(ring2.inner, ring2.outer, subStart, subEnd));
+    subPath.setAttribute('class', 'arc');
+    subPath.setAttribute('fill', cat.color);
+    subPath.setAttribute('opacity', '0.55');
+    subPath.dataset.catId = cat.id;
+    subPath.dataset.subId = sub.id;
+    subPath.addEventListener('mouseenter', (e) => showTooltip(e, `${cat.name} > ${sub.name}`));
+    subPath.addEventListener('mousemove', (e) => moveTooltip(e));
+    subPath.addEventListener('mouseleave', hideTooltip);
+    subPath.addEventListener('click', () => selectSub(cat, sub));
+    svg.appendChild(subPath);
+  });
+});
+
+function showTooltip(e, text) {
+  tooltip.textContent = text;
+  tooltip.classList.add('visible');
+  moveTooltip(e);
+}
+function moveTooltip(e) {
+  tooltip.style.left = e.clientX + 'px';
+  tooltip.style.top = e.clientY + 'px';
+}
+function hideTooltip() {
+  tooltip.classList.remove('visible');
+}
+
+function selectCategory(cat) {
+  panelTitle.textContent = `${cat.name} のサブカテゴリを選んでください`;
+  examplesEl.innerHTML = '';
+  cat.subs.forEach(sub => {
+    const btn = document.createElement('div');
+    btn.className = 'example-chip';
+    btn.style.setProperty('--chip-color', cat.color);
+    btn.textContent = sub.name;
+    btn.addEventListener('click', () => selectSub(cat, sub));
+    examplesEl.appendChild(btn);
+  });
+}
+
+function selectSub(cat, sub) {
+  panelTitle.textContent = `${cat.name} > ${sub.name} の代表例`;
+  examplesEl.innerHTML = '';
+  sub.examples.forEach(example => {
+    const chip = document.createElement('div');
+    chip.className = 'example-chip';
+    chip.style.setProperty('--chip-color', cat.color);
+    chip.textContent = example;
+    if (selectedNotes.has(example)) chip.classList.add('selected');
+    chip.addEventListener('click', () => toggleNote(example, cat.color, chip));
+    examplesEl.appendChild(chip);
+  });
+}
+
+function toggleNote(example, color, chipEl) {
+  if (selectedNotes.has(example)) {
+    selectedNotes.delete(example);
+    chipEl.classList.remove('selected');
+  } else {
+    selectedNotes.set(example, color);
+    chipEl.classList.add('selected');
+  }
+  renderNotes();
+}
+
+function renderNotes() {
+  notesEl.innerHTML = '';
+  selectedNotes.forEach((color, example) => {
+    const chip = document.createElement('div');
+    chip.className = 'note-chip';
+    chip.style.background = color;
+    const label = document.createElement('span');
+    label.textContent = example;
+    const remove = document.createElement('button');
+    remove.textContent = '×';
+    remove.addEventListener('click', () => {
+      selectedNotes.delete(example);
+      renderNotes();
+      // sync any visible chip in the examples panel
+      const visibleChip = [...examplesEl.children].find(c => c.textContent === example);
+      if (visibleChip) visibleChip.classList.remove('selected');
+    });
+    chip.appendChild(label);
+    chip.appendChild(remove);
+    notesEl.appendChild(chip);
+  });
+  notesEmpty.style.display = selectedNotes.size ? 'none' : 'block';
+}
+</script>
+</body>
+</html>
