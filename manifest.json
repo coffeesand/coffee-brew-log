@@ -2,7 +2,7 @@
   "name": "Brew Log — コーヒー記録アプリ",
   "short_name": "Brew Log",
   "description": "抽出方法・レシピ・TDS・水質・フレーバーをまとめて記録するホームバリスタ向けアプリ",
-  "start_url": "./coffee%20logging%20app.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait-primary",

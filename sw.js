@@ -1,6 +1,6 @@
-const CACHE_NAME = 'brew-log-v12';
+const CACHE_NAME = 'brew-log-v13';
 const APP_SHELL = [
-  './coffee logging app.html',
+  './index.html',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
