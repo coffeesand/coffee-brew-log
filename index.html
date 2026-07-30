@@ -777,6 +777,55 @@
   .stock-bar-fill { height: 100%; background: var(--brand); }
   .stock-bar-fill.low { background: var(--status-warning); }
 
+  /* ---------- Recipes ---------- */
+  .recipe-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 14px;
+  }
+  .recipe-card { padding: 14px; }
+  .recipe-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+  }
+  .recipe-name { font-family: var(--font-display); font-size: 15px; font-weight: 700; }
+  .recipe-sub { font-size: 12px; color: var(--text-secondary); margin: 2px 0 10px; }
+  .recipe-meta-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+  }
+  .recipe-card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .recipe-card-actions .primary-btn,
+  .recipe-card-actions .secondary-btn {
+    flex: 1;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .recipe-edit-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+    padding: 10px 14px;
+    border-radius: 4px;
+    background: var(--brand-tint);
+    color: var(--brand);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .recipe-edit-banner .recipe-edit-actions { display: flex; gap: 8px; }
+
   /* ---------- Bottom nav (mobile) ---------- */
   .bottom-nav {
     display: none;
@@ -845,6 +894,7 @@
       <div class="brand-title"><span class="icon" data-icon="brand"></span><span class="label">Brew Log</span></div>
       <button class="nav-link" data-view="dashboard" aria-current="page"><span class="icon" data-icon="dashboard"></span><span class="label">ダッシュボード</span></button>
       <button class="nav-link" data-view="log-form"><span class="icon" data-icon="log-form"></span><span class="label">抽出を記録</span></button>
+      <button class="nav-link" data-view="recipes"><span class="icon" data-icon="recipe"></span><span class="label">レシピ</span></button>
       <button class="nav-link" data-view="history"><span class="icon" data-icon="history"></span><span class="label">履歴一覧</span></button>
       <button class="nav-link" data-view="beans"><span class="icon" data-icon="beans"></span><span class="label">豆管理</span></button>
       <button class="nav-link" data-view="settings"><span class="icon" data-icon="settings"></span><span class="label">設定</span></button>
@@ -935,6 +985,14 @@
               <button class="secondary-btn" id="save-recipe-btn" type="button">この設定をレシピとして保存</button>
             </div>
 
+            <div class="recipe-edit-banner" id="recipe-edit-banner" hidden>
+              <span id="recipe-edit-banner-text"></span>
+              <div class="recipe-edit-actions">
+                <button class="secondary-btn" id="recipe-edit-cancel-btn" type="button">キャンセル</button>
+                <button class="primary-btn" id="recipe-edit-save-btn" type="button">変更を保存</button>
+              </div>
+            </div>
+
             <div class="method-tabs" id="method-tabs">
               <button class="method-tab" data-method="drip" aria-pressed="true">ハンドドリップ</button>
               <button class="method-tab" data-method="espresso" aria-pressed="false">エスプレッソ</button>
@@ -950,6 +1008,10 @@
               <div class="field"><label>湯量 (cc)</label><input type="number" id="beverage-volume" value="240" step="1" /></div>
               <div class="field"><label>湯温 (℃)</label><input type="number" id="temp-input" value="92" /></div>
               <div class="field"><label>挽き目</label><input type="text" id="grind-input" placeholder="例: Comandante 22クリック" /></div>
+            </div>
+
+            <div class="yield-result" id="quick-ratio-result" style="margin-top:12px;">
+              <div>レシオ（粉:湯）: <b id="ratio-output-quick">--</b></div>
             </div>
 
             <div class="method-group active" data-method-group="drip">
@@ -1050,6 +1112,20 @@
             <button class="primary-btn" id="save-brew-btn" type="button">記録する</button>
           </div>
         </div>
+      </section>
+
+      <!-- ================= RECIPES ================= -->
+      <section class="view" id="view-recipes">
+        <div class="view-header-row">
+          <div>
+            <h1 class="page-title">レシピ</h1>
+            <p class="page-subtitle">よく使う抽出設定を保存して、いつでも呼び出せます</p>
+          </div>
+          <button class="primary-btn" id="open-recipe-create-btn" type="button">＋ 新しいレシピを作成</button>
+        </div>
+
+        <div class="recipe-grid" id="recipe-grid"></div>
+        <p class="empty-hint" id="recipe-grid-empty" style="display:none;font-size:13px;color:var(--text-muted);">保存されたレシピはまだありません。「抽出を記録」で設定を組んで「この設定をレシピとして保存」を押すと、ここに表示されます。</p>
       </section>
 
       <!-- ================= HISTORY ================= -->
@@ -1175,6 +1251,7 @@
   <nav class="bottom-nav">
     <button class="nav-link" data-view="dashboard" aria-current="page"><span class="icon" data-icon="dashboard"></span>ホーム</button>
     <button class="nav-link" data-view="log-form"><span class="icon" data-icon="log-form"></span>記録</button>
+    <button class="nav-link" data-view="recipes"><span class="icon" data-icon="recipe"></span>レシピ</button>
     <button class="nav-link" data-view="history"><span class="icon" data-icon="history"></span>履歴</button>
     <button class="nav-link" data-view="beans"><span class="icon" data-icon="beans"></span>豆</button>
     <button class="nav-link" data-view="settings"><span class="icon" data-icon="settings"></span>設定</button>
@@ -1377,6 +1454,7 @@
     dashboard: '<path d="M4 11.5L12 5l8 6.5"/><path d="M6 10v8a1 1 0 0 0 1 1h3v-5h4v5h3a1 1 0 0 0 1-1v-8"/>',
     'log-form': '<path d="M4 20l1-4L16 5l3 3L8 19l-4 1z"/><path d="M14 7l3 3"/>',
     history: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
+    recipe: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6"/><path d="M9 12h6"/><path d="M9 16h4"/>',
     beans: '<ellipse cx="12" cy="12" rx="5" ry="8" transform="rotate(20 12 12)"/><path d="M12 5c-2 3-2 11 0 14" transform="rotate(20 12 12)"/>',
     settings: '<path d="M4 7h10"/><circle cx="16" cy="7" r="2"/><path d="M4 12h4"/><circle cx="10" cy="12" r="2"/><path d="M14 12h6"/><path d="M4 17h10"/><circle cx="16" cy="17" r="2"/>',
     trash: '<path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/>',
@@ -1420,17 +1498,19 @@
   const tdsInput = document.getElementById('tds');
   const yieldOutput = document.getElementById('yield-output');
   const ratioOutput = document.getElementById('ratio-output');
+  const ratioOutputQuick = document.getElementById('ratio-output-quick');
   function recalcYield() {
     const dose = parseFloat(doseInput.value);
     const beverage = parseFloat(beverageInput.value);
     const tds = parseFloat(tdsInput.value);
+    // Ratio only needs dose+water, so it's shown regardless of whether TDS is filled in.
+    const ratioText = (dose > 0 && beverage > 0) ? ('1 : ' + (beverage / dose).toFixed(1)) : '--';
+    ratioOutput.textContent = ratioText;
+    ratioOutputQuick.textContent = ratioText;
     if (dose > 0 && beverage > 0 && tds >= 0) {
-      const ey = (tds * beverage) / dose;
-      yieldOutput.textContent = ey.toFixed(2);
-      ratioOutput.textContent = '1 : ' + (beverage / dose).toFixed(1);
+      yieldOutput.textContent = ((tds * beverage) / dose).toFixed(2);
     } else {
       yieldOutput.textContent = '--';
-      ratioOutput.textContent = '--';
     }
   }
   [doseInput, beverageInput, tdsInput].forEach(el => el.addEventListener('input', recalcYield));
@@ -1575,9 +1655,44 @@
 
   renderRecipeSelect();
 
+  // ---------- Recipe edit mode: editing an existing recipe's parameters happens
+  // in the log form itself (it already has every method-specific field), with a
+  // banner tracking which saved recipe is being overwritten on save. ----------
+  let editingRecipeIndex = null;
+  const recipeEditBanner = document.getElementById('recipe-edit-banner');
+  const recipeEditBannerText = document.getElementById('recipe-edit-banner-text');
+
+  function enterRecipeEditMode(index) {
+    const recipe = recipes[index];
+    if (!recipe) return;
+    editingRecipeIndex = index;
+    applyRecipe(recipe);
+    recipeEditBannerText.textContent = `「${recipe.name}」を編集中`;
+    recipeEditBanner.hidden = false;
+    setView('log-form');
+  }
+  function exitRecipeEditMode() {
+    editingRecipeIndex = null;
+    recipeEditBanner.hidden = true;
+  }
+  document.getElementById('recipe-edit-cancel-btn').addEventListener('click', exitRecipeEditMode);
+  document.getElementById('recipe-edit-save-btn').addEventListener('click', () => {
+    if (editingRecipeIndex == null || !recipes[editingRecipeIndex]) return;
+    const name = recipes[editingRecipeIndex].name;
+    const recipe = captureRecipe();
+    recipe.name = name;
+    recipes[editingRecipeIndex] = recipe;
+    saveRecipesToStorage(recipes);
+    renderRecipeSelect();
+    renderRecipeGrid();
+    exitRecipeEditMode();
+    showToast('レシピを更新しました');
+  });
+
   recipeSelect.addEventListener('change', () => {
     deleteRecipeBtn.hidden = recipeSelect.value === '';
     if (recipeSelect.value === '') return;
+    exitRecipeEditMode();
     applyRecipe(recipes[Number(recipeSelect.value)]);
   });
 
@@ -1585,9 +1700,11 @@
     const idx = Number(recipeSelect.value);
     if (Number.isNaN(idx) || !recipes[idx]) return;
     if (!confirm(`「${recipes[idx].name}」を削除しますか？`)) return;
+    if (editingRecipeIndex === idx) exitRecipeEditMode();
     recipes.splice(idx, 1);
     saveRecipesToStorage(recipes);
     renderRecipeSelect();
+    renderRecipeGrid();
   });
 
   const recipeModalOverlay = document.getElementById('recipe-modal-overlay');
@@ -1612,11 +1729,91 @@
     recipe.name = name;
     recipes.push(recipe);
     saveRecipesToStorage(recipes);
+    exitRecipeEditMode();
     renderRecipeSelect();
+    renderRecipeGrid();
     recipeSelect.value = String(recipes.length - 1);
     deleteRecipeBtn.hidden = false;
     closeRecipeModal();
+    showToast('レシピを保存しました');
   });
+
+  // ---------- Recipe management page: browse, reuse, edit, delete saved recipes ----------
+  const recipeGridEl = document.getElementById('recipe-grid');
+  const recipeGridEmptyEl = document.getElementById('recipe-grid-empty');
+
+  function recipeRatioLabel(recipe) {
+    const dose = parseFloat(recipe.dose);
+    const beverage = parseFloat(recipe.beverageVolume);
+    return (dose > 0 && beverage > 0) ? ('1 : ' + (beverage / dose).toFixed(1)) : '—';
+  }
+
+  function buildRecipeCard(recipe, index) {
+    const card = document.createElement('div');
+    card.className = 'card recipe-card';
+    card.innerHTML = `
+      <div class="recipe-card-head">
+        <div>
+          <div class="recipe-name">${escapeHtml(recipe.name)}</div>
+          <div class="recipe-sub">${escapeHtml(methodLabel(recipe.method))}</div>
+        </div>
+        <button class="icon-btn" type="button" data-delete-recipe="${index}" aria-label="このレシピを削除" title="削除"><span class="icon" data-icon="trash"></span></button>
+      </div>
+      <div class="recipe-meta-row"><span>粉量</span><span>${recipe.dose || '—'} g</span></div>
+      <div class="recipe-meta-row"><span>湯量</span><span>${recipe.beverageVolume || '—'} cc</span></div>
+      <div class="recipe-meta-row"><span>レシオ</span><span>${recipeRatioLabel(recipe)}</span></div>
+      <div class="recipe-meta-row"><span>湯温</span><span>${recipe.temp || '—'} ℃</span></div>
+      ${recipe.grind ? `<div class="recipe-meta-row"><span>挽き目</span><span>${escapeHtml(recipe.grind)}</span></div>` : ''}
+      <div class="recipe-card-actions">
+        <button class="primary-btn" type="button" data-use-recipe="${index}">このレシピで記録する</button>
+        <button class="secondary-btn" type="button" data-edit-recipe="${index}">編集</button>
+      </div>
+    `;
+    renderIcons(card);
+    return card;
+  }
+
+  function renderRecipeGrid() {
+    recipeGridEl.innerHTML = '';
+    recipes.forEach((r, i) => recipeGridEl.appendChild(buildRecipeCard(r, i)));
+    recipeGridEmptyEl.style.display = recipes.length ? 'none' : 'block';
+  }
+
+  recipeGridEl.addEventListener('click', (e) => {
+    const delBtn = e.target.closest('[data-delete-recipe]');
+    if (delBtn) {
+      const idx = Number(delBtn.dataset.deleteRecipe);
+      if (!recipes[idx]) return;
+      if (!confirm(`「${recipes[idx].name}」を削除しますか？`)) return;
+      if (editingRecipeIndex === idx) exitRecipeEditMode();
+      recipes.splice(idx, 1);
+      saveRecipesToStorage(recipes);
+      renderRecipeSelect();
+      renderRecipeGrid();
+      showToast('レシピを削除しました');
+      return;
+    }
+    const useBtn = e.target.closest('[data-use-recipe]');
+    if (useBtn) {
+      const idx = Number(useBtn.dataset.useRecipe);
+      if (!recipes[idx]) return;
+      exitRecipeEditMode();
+      applyRecipe(recipes[idx]);
+      setView('log-form');
+      showToast('レシピをフォームに反映しました');
+      return;
+    }
+    const editBtn = e.target.closest('[data-edit-recipe]');
+    if (editBtn) enterRecipeEditMode(Number(editBtn.dataset.editRecipe));
+  });
+
+  document.getElementById('open-recipe-create-btn').addEventListener('click', () => {
+    exitRecipeEditMode();
+    setView('log-form');
+    showToast('抽出方法を設定して「この設定をレシピとして保存」で登録できます');
+  });
+
+  renderRecipeGrid();
 
   // ---------- Quick record: a lightweight dashboard entry for casual logging ----------
   // Deliberately separate from the full "抽出を記録" flow — bean/memo/rating only by
