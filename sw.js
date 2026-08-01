@@ -1,4 +1,4 @@
-const CACHE_NAME = 'brew-log-v14';
+const CACHE_NAME = 'brew-log-v16';
 const APP_SHELL = [
   './index.html',
   './manifest.json',

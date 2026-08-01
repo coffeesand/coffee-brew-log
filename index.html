@@ -234,6 +234,19 @@
   }
   .field[hidden] { display: none; } /* .field's display:flex otherwise beats the [hidden] UA rule */
   .field label { font-size: 12px; color: var(--text-secondary); }
+  .field[data-field-key] > label { cursor: pointer; }
+  .field[data-field-key] > label:hover { color: var(--status-critical); text-decoration: line-through; }
+  .hidden-fields-list { display: flex; flex-wrap: wrap; gap: 8px; }
+  .hidden-field-chip {
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .hidden-field-chip:hover { border-color: var(--brand); color: var(--brand); }
   .field input, .field select, .field textarea {
     font-family: inherit;
     font-size: 14px;
@@ -421,6 +434,7 @@
     color: var(--text-muted);
     white-space: nowrap;
   }
+  .pour-amount-hint { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
   .pour-field.pour-memo { flex: 1; min-width: 140px; }
   .pour-field.pour-memo input {
     width: 100%;
@@ -955,7 +969,10 @@
             <h1 class="page-title">抽出を記録</h1>
             <p class="page-subtitle">抽出方法を選ぶと入力項目が切り替わります</p>
           </div>
-          <button class="secondary-btn" id="open-quick-modal-btn" type="button">サッと記録</button>
+          <div style="display:flex; gap:8px; flex-shrink:0;">
+            <button class="icon-btn" id="open-hidden-fields-btn" type="button" title="非表示にした項目を追加" aria-label="項目を追加"><span class="icon" data-icon="plus"></span></button>
+            <button class="secondary-btn" id="open-quick-modal-btn" type="button">サッと記録</button>
+          </div>
         </div>
 
         <div class="card">
@@ -1017,6 +1034,13 @@
             <div class="method-group active" data-method-group="drip">
               <div class="field-grid" style="margin-top:12px;">
                 <div class="field"><label>注湯回数 (投)</label><input type="number" id="pour-count" value="3" min="1" max="10" /></div>
+                <div class="field">
+                  <label>注湯量の単位</label>
+                  <div class="method-tabs" id="pour-unit-toggle" style="margin-bottom:0;">
+                    <button class="method-tab" type="button" data-unit="g" aria-pressed="true">g（重量）</button>
+                    <button class="method-tab" type="button" data-unit="percent" aria-pressed="false">%（割合）</button>
+                  </div>
+                </div>
               </div>
               <div class="pour-table" id="pour-rows"></div>
               <div class="yield-result" style="margin-top:12px;">
@@ -1098,6 +1122,13 @@
             <h2>評価（WBrC基準）</h2>
             <div id="wbrc-axes"></div>
             <p class="wbrc-total">合計スコア: <b id="wbrc-total-score">0</b> / 63</p>
+          </div>
+
+          <div class="form-section">
+            <div class="field">
+              <label>評価メモ</label>
+              <textarea id="evaluation-memo" rows="3" placeholder="例: もう少し粗めに挽いた方が良さそう"></textarea>
+            </div>
           </div>
 
           <div class="form-section">
@@ -1281,6 +1312,21 @@
   </div>
   <div class="fw-tooltip" id="flavor-tooltip"></div>
 
+  <!-- Hidden fields modal -->
+  <div class="modal-overlay" id="hidden-fields-modal-overlay" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-label="非表示の項目を追加">
+      <div class="modal-head">
+        <h2>項目を追加</h2>
+        <button class="modal-close" id="hidden-fields-modal-close" type="button" aria-label="閉じる">✕</button>
+      </div>
+      <div class="modal-body" style="flex-direction: column;">
+        <p class="group-hint">タップすると記録フォームに再表示されます</p>
+        <div class="hidden-fields-list" id="hidden-fields-list"></div>
+        <p class="empty-hint" id="hidden-fields-empty" style="display:none;font-size:13px;color:var(--text-muted);">非表示の項目はありません</p>
+      </div>
+    </div>
+  </div>
+
   <!-- Add bean modal -->
   <div class="modal-overlay" id="bean-modal-overlay" hidden>
     <div class="modal-box" role="dialog" aria-modal="true" aria-label="豆を追加">
@@ -1367,6 +1413,16 @@
         <div class="field">
           <label>レシピ名</label>
           <input type="text" id="recipe-name-input" placeholder="例: 王道ハンドドリップ" />
+        </div>
+        <div class="toggle-row" style="border-bottom:none; padding: 10px 0 0;">
+          <div class="toggle-row-text">
+            <div class="toggle-label">レシオのみで保存</div>
+            <div class="toggle-desc" id="recipe-ratio-only-hint">湯量・粉量を固定せず、比率だけを保存します</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="recipe-ratio-only-checkbox" />
+            <span class="track"></span><span class="thumb"></span>
+          </label>
         </div>
       </div>
       <div class="modal-foot">
@@ -1459,6 +1515,7 @@
     settings: '<path d="M4 7h10"/><circle cx="16" cy="7" r="2"/><path d="M4 12h4"/><circle cx="10" cy="12" r="2"/><path d="M14 12h6"/><path d="M4 17h10"/><circle cx="16" cy="17" r="2"/>',
     trash: '<path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/>',
     scale: '<path d="M12 3v4"/><path d="M5 7h14"/><path d="M5 7l-3 7a3 3 0 0 0 6 0z"/><path d="M19 7l-3 7a3 3 0 0 0 6 0z"/><path d="M8 21h8"/><path d="M12 11v10"/>',
+    plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
   };
   function renderIcons(root = document) {
     root.querySelectorAll('[data-icon]').forEach(el => {
@@ -1514,11 +1571,30 @@
     }
   }
   [doseInput, beverageInput, tdsInput].forEach(el => el.addEventListener('input', recalcYield));
+  beverageInput.addEventListener('input', () => updatePourHints());
+
+  // ---------- Ratio-locked recipes: while a ratio-only recipe is active, 湯量
+  // follows 粉量 automatically (湯量 = 粉量 × レシオ). Editing 湯量 directly
+  // breaks the lock, since the user is taking manual control at that point.
+  let activeRecipeRatio = null;
+  doseInput.addEventListener('input', () => {
+    if (!activeRecipeRatio) return;
+    beverageInput.value = Math.round((parseFloat(doseInput.value) || 0) * activeRecipeRatio);
+    recalcYield();
+    updatePourHints();
+  });
+  beverageInput.addEventListener('input', () => { activeRecipeRatio = null; });
 
   // ---------- Hand-drip pour-by-pour recipe ----------
   const pourCountInput = document.getElementById('pour-count');
   const pourRowsEl = document.getElementById('pour-rows');
   const totalBrewTimeOutput = document.getElementById('total-brew-time-output');
+  const pourUnitButtons = document.querySelectorAll('#pour-unit-toggle .method-tab');
+  // "%" stores each pour as a share of the total 湯量 instead of an absolute
+  // weight, so the same pour schedule keeps its shape at any dose — useful
+  // for ratio-only recipes (see below). Actual brew records always save
+  // absolute grams (see captureBrew) regardless of which unit was used to type them in.
+  let pourUnit = 'g';
 
   function formatMinSec(totalSeconds) {
     const m = Math.floor(totalSeconds / 60);
@@ -1534,23 +1610,41 @@
     }));
   }
 
+  function pourAmountGrams(amount) {
+    if (pourUnit !== 'percent') return amount;
+    const total = parseFloat(beverageInput.value) || 0;
+    return Math.round((amount / 100) * total);
+  }
+
+  function updatePourHints() {
+    if (pourUnit !== 'percent') return;
+    pourRowsEl.querySelectorAll('.pour-row').forEach(row => {
+      const amount = parseFloat(row.querySelector('.pour-amount').value) || 0;
+      const hint = row.querySelector('.pour-amount-hint');
+      if (hint) hint.textContent = `≒ ${pourAmountGrams(amount)}g`;
+    });
+  }
+
   function buildPourRows(count, preserved) {
     pourRowsEl.innerHTML = '';
+    const amountLabel = pourUnit === 'percent' ? '注湯量 (%)' : '注湯量 (g)';
     for (let i = 0; i < count; i++) {
       const prev = preserved && preserved[i];
       const defaultInterval = prev ? prev.interval : 45;
-      const defaultAmount = prev ? prev.amount : Math.round((parseFloat(beverageInput.value) || 240) / count);
+      const defaultAmount = prev ? prev.amount
+        : (pourUnit === 'percent' ? Math.round((100 / count) * 10) / 10 : Math.round((parseFloat(beverageInput.value) || 240) / count));
       const defaultMemo = prev ? prev.memo : '';
       const row = document.createElement('div');
       row.className = 'pour-row';
       const timeField = i === 0
         ? `<div class="pour-field"><label>タイミング</label><span class="pour-start-label">スタート（0秒）</span></div>`
         : `<div class="pour-field"><label>前の投からの時間 (秒)</label><input type="number" class="pour-interval" value="${defaultInterval}" min="0" /></div>`;
+      const hintField = pourUnit === 'percent' ? `<span class="pour-amount-hint">≒ ${pourAmountGrams(defaultAmount)}g</span>` : '';
       row.innerHTML = `
         <span class="pour-index">第${i + 1}投</span>
         ${timeField}
-        <div class="pour-field"><label>注湯量 (g)</label><input type="number" class="pour-amount" value="${defaultAmount}" min="0" /></div>
-        <div class="pour-field pour-memo"><label>メモ</label><input type="text" class="pour-note" placeholder="例: ここで攪拌" value="${defaultMemo}" /></div>
+        <div class="pour-field"><label>${amountLabel}</label><input type="number" class="pour-amount" value="${defaultAmount}" min="0" step="${pourUnit === 'percent' ? '0.1' : '1'}" />${hintField}</div>
+        <div class="pour-field pour-memo"><label>メモ</label><input type="text" class="pour-note" placeholder="${i === 0 ? '例: 攪拌' : ''}" value="${defaultMemo}" /></div>
       `;
       pourRowsEl.appendChild(row);
     }
@@ -1563,6 +1657,22 @@
     totalBrewTimeOutput.textContent = `${formatMinSec(totalSeconds)}（${totalSeconds}秒）`;
   }
 
+  function setPourUnit(newUnit) {
+    if (newUnit === pourUnit) return;
+    const total = parseFloat(beverageInput.value) || 0;
+    const converted = collectPourValues().map(v => {
+      let amount = v.amount;
+      if (pourUnit === 'g' && newUnit === 'percent') amount = total > 0 ? Math.round((v.amount / total) * 1000) / 10 : 0;
+      else if (pourUnit === 'percent' && newUnit === 'g') amount = total > 0 ? Math.round((v.amount / 100) * total) : 0;
+      return { ...v, amount };
+    });
+    pourUnit = newUnit;
+    pourUnitButtons.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.unit === newUnit)));
+    buildPourRows(converted.length, converted);
+    recalcTotalBrewTime();
+  }
+  pourUnitButtons.forEach(btn => btn.addEventListener('click', () => setPourUnit(btn.dataset.unit)));
+
   pourCountInput.addEventListener('input', () => {
     const count = Math.max(1, Math.min(10, parseInt(pourCountInput.value, 10) || 1));
     const preserved = collectPourValues();
@@ -1571,6 +1681,7 @@
   });
   pourRowsEl.addEventListener('input', (e) => {
     if (e.target.matches('.pour-interval')) recalcTotalBrewTime();
+    if (e.target.matches('.pour-amount')) updatePourHints();
   });
 
   buildPourRows(parseInt(pourCountInput.value, 10) || 3, null);
@@ -1619,17 +1730,19 @@
     const method = activeMethod();
     const recipe = {
       method,
-      dose: doseInput.value,
-      beverageVolume: beverageInput.value,
-      temp: tempInput.value,
-      grind: grindInput.value,
+      dose: isFieldHidden('dose') ? '' : doseInput.value,
+      beverageVolume: isFieldHidden('beverage') ? '' : beverageInput.value,
+      temp: isFieldHidden('temp') ? '' : tempInput.value,
+      grind: isFieldHidden('grind') ? '' : grindInput.value,
       methodFields: {},
     };
     document.querySelectorAll(`[data-method-group="${method}"] [data-field]`).forEach(el => {
-      recipe.methodFields[el.dataset.field] = el.value;
+      const key = `detail:${method}:${el.dataset.field}`;
+      if (!isFieldHidden(key)) recipe.methodFields[el.dataset.field] = el.value;
     });
     if (method === 'drip') {
       recipe.pourCount = pourCountInput.value;
+      recipe.pourUnit = pourUnit;
       recipe.pours = collectPourValues();
     }
     return recipe;
@@ -1637,8 +1750,18 @@
 
   function applyRecipe(recipe) {
     document.querySelector(`#method-tabs [data-method="${recipe.method}"]`)?.click();
-    doseInput.value = recipe.dose;
-    beverageInput.value = recipe.beverageVolume;
+    if (recipe.ratio) {
+      // Ratio-only recipe: keep whatever 粉量 is already in the form (or a
+      // sane default) and derive 湯量 from it; 粉量 then keeps driving 湯量
+      // live until the user edits 湯量 directly.
+      activeRecipeRatio = recipe.ratio;
+      if (!(parseFloat(doseInput.value) > 0)) doseInput.value = 15;
+      beverageInput.value = Math.round((parseFloat(doseInput.value) || 0) * recipe.ratio);
+    } else {
+      activeRecipeRatio = null;
+      doseInput.value = recipe.dose;
+      beverageInput.value = recipe.beverageVolume;
+    }
     tempInput.value = recipe.temp;
     grindInput.value = recipe.grind;
     Object.entries(recipe.methodFields || {}).forEach(([key, val]) => {
@@ -1646,6 +1769,8 @@
       if (el) el.value = val;
     });
     if (recipe.method === 'drip' && recipe.pours) {
+      pourUnit = recipe.pourUnit || 'g';
+      pourUnitButtons.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.unit === pourUnit)));
       pourCountInput.value = recipe.pourCount || recipe.pours.length;
       buildPourRows(recipe.pours.length, recipe.pours);
     }
@@ -1679,7 +1804,7 @@
   document.getElementById('recipe-edit-save-btn').addEventListener('click', () => {
     if (editingRecipeIndex == null || !recipes[editingRecipeIndex]) return;
     const name = recipes[editingRecipeIndex].name;
-    const recipe = captureRecipe();
+    const recipe = finalizeRecipe(!!recipes[editingRecipeIndex].ratio);
     recipe.name = name;
     recipes[editingRecipeIndex] = recipe;
     saveRecipesToStorage(recipes);
@@ -1707,10 +1832,35 @@
     renderRecipeGrid();
   });
 
+  // A ratio-only recipe drops the fixed 粉量/湯量 in favor of just their ratio
+  // (plus pours converted to % so the schedule scales with any dose) — see
+  // applyRecipe's ratio-lock handling above for how it's reproduced later.
+  function finalizeRecipe(ratioOnly) {
+    const recipe = captureRecipe();
+    if (ratioOnly) {
+      const dose = parseFloat(doseInput.value);
+      const beverage = parseFloat(beverageInput.value);
+      if (dose > 0 && beverage > 0) {
+        recipe.ratio = Math.round((beverage / dose) * 100) / 100;
+        if (recipe.pours && recipe.pours.length && pourUnit !== 'percent') {
+          recipe.pours = recipe.pours.map(p => ({ ...p, amount: beverage > 0 ? Math.round((p.amount / beverage) * 1000) / 10 : 0 }));
+        }
+        recipe.pourUnit = 'percent';
+      }
+      recipe.dose = '';
+      recipe.beverageVolume = '';
+    } else {
+      recipe.ratio = null;
+    }
+    return recipe;
+  }
+
   const recipeModalOverlay = document.getElementById('recipe-modal-overlay');
   const recipeNameInput = document.getElementById('recipe-name-input');
+  const recipeRatioOnlyCheckbox = document.getElementById('recipe-ratio-only-checkbox');
   function openRecipeModal() {
     recipeNameInput.value = '';
+    recipeRatioOnlyCheckbox.checked = false;
     recipeModalOverlay.hidden = false;
     recipeNameInput.focus();
   }
@@ -1725,7 +1875,7 @@
   document.getElementById('recipe-modal-save').addEventListener('click', () => {
     const name = recipeNameInput.value.trim();
     if (!name) { recipeNameInput.focus(); return; }
-    const recipe = captureRecipe();
+    const recipe = finalizeRecipe(recipeRatioOnlyCheckbox.checked);
     recipe.name = name;
     recipes.push(recipe);
     saveRecipesToStorage(recipes);
@@ -1743,6 +1893,7 @@
   const recipeGridEmptyEl = document.getElementById('recipe-grid-empty');
 
   function recipeRatioLabel(recipe) {
+    if (recipe.ratio) return '1 : ' + recipe.ratio.toFixed(1);
     const dose = parseFloat(recipe.dose);
     const beverage = parseFloat(recipe.beverageVolume);
     return (dose > 0 && beverage > 0) ? ('1 : ' + (beverage / dose).toFixed(1)) : '—';
@@ -1755,12 +1906,12 @@
       <div class="recipe-card-head">
         <div>
           <div class="recipe-name">${escapeHtml(recipe.name)}</div>
-          <div class="recipe-sub">${escapeHtml(methodLabel(recipe.method))}</div>
+          <div class="recipe-sub">${escapeHtml(methodLabel(recipe.method))}${recipe.ratio ? '・レシオ指定' : ''}</div>
         </div>
         <button class="icon-btn" type="button" data-delete-recipe="${index}" aria-label="このレシピを削除" title="削除"><span class="icon" data-icon="trash"></span></button>
       </div>
-      <div class="recipe-meta-row"><span>粉量</span><span>${recipe.dose || '—'} g</span></div>
-      <div class="recipe-meta-row"><span>湯量</span><span>${recipe.beverageVolume || '—'} cc</span></div>
+      <div class="recipe-meta-row"><span>粉量</span><span>${recipe.ratio ? '記録時に入力' : (recipe.dose ? recipe.dose + ' g' : '—')}</span></div>
+      <div class="recipe-meta-row"><span>湯量</span><span>${recipe.ratio ? '粉量から自動計算' : (recipe.beverageVolume ? recipe.beverageVolume + ' cc' : '—')}</span></div>
       <div class="recipe-meta-row"><span>レシオ</span><span>${recipeRatioLabel(recipe)}</span></div>
       <div class="recipe-meta-row"><span>湯温</span><span>${recipe.temp || '—'} ℃</span></div>
       ${recipe.grind ? `<div class="recipe-meta-row"><span>挽き目</span><span>${escapeHtml(recipe.grind)}</span></div>` : ''}
@@ -2061,7 +2212,7 @@
 
   // ---------- Settings: show/hide maniac fields ----------
   const SETTINGS_KEY = 'coffeeAppSettings';
-  const defaultSettings = { tds: true, water: true, wbrc: true, detail: true };
+  const defaultSettings = { tds: true, water: true, wbrc: true, detail: true, hiddenFields: [] };
   function loadSettings() {
     try {
       return { ...defaultSettings, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
@@ -2096,10 +2247,109 @@
     applySettings();
   });
   document.getElementById('preset-full').addEventListener('click', () => {
-    saveSettings({ tds: true, water: true, wbrc: true, detail: true });
+    saveSettings({ tds: true, water: true, wbrc: true, detail: true, hiddenFields: [] });
     applySettings();
   });
   applySettings();
+
+  // ---------- Optional fields: most log-form fields (everything except the
+  // 抽出方法 method tabs and pour schedule) can be hidden per-user by clicking
+  // their label — persisted as a default so the form only shows what this
+  // user actually fills in. A hidden field is treated as "not recorded" when
+  // a brew/recipe is captured, instead of silently saving a stale default
+  // (e.g. TDS's 1.35) nobody actually measured this time. The "＋" button
+  // brings a hidden field back, for this entry and going forward.
+  function optionalFieldEntries() {
+    const core = [
+      ['bean', 'bean-input'], ['datetime', 'brew-datetime'],
+      ['dose', 'dose'], ['beverage', 'beverage-volume'], ['temp', 'temp-input'], ['grind', 'grind-input'],
+      ['tds', 'tds'], ['gh', 'gh-input'], ['kh', 'kh-input'], ['mineral', 'mineral-input'],
+      ['evaluationMemo', 'evaluation-memo'],
+    ].map(([key, id]) => {
+      const input = document.getElementById(id);
+      const field = input?.closest('.field');
+      return field ? { key, field } : null;
+    }).filter(Boolean);
+    const detail = [...document.querySelectorAll('.method-group [data-field]')].map(input => {
+      const group = input.closest('.method-group')?.dataset.methodGroup || '';
+      const field = input.closest('.field');
+      return field ? { key: `detail:${group}:${input.dataset.field}`, field } : null;
+    }).filter(Boolean);
+    return [...core, ...detail];
+  }
+
+  function fieldLabelText(entry) {
+    return entry.field.querySelector('label')?.textContent.trim() || entry.key;
+  }
+
+  function isFieldHidden(key) {
+    return loadSettings().hiddenFields.includes(key);
+  }
+
+  function setFieldHidden(key, hiddenFlag) {
+    const settings = loadSettings();
+    const set = new Set(settings.hiddenFields);
+    if (hiddenFlag) set.add(key); else set.delete(key);
+    settings.hiddenFields = [...set];
+    saveSettings(settings);
+  }
+
+  const hiddenFieldsModalOverlay = document.getElementById('hidden-fields-modal-overlay');
+  const hiddenFieldsListEl = document.getElementById('hidden-fields-list');
+  const hiddenFieldsEmptyEl = document.getElementById('hidden-fields-empty');
+
+  function renderHiddenFieldsList() {
+    const settings = loadSettings();
+    const entries = optionalFieldEntries().filter(e => settings.hiddenFields.includes(e.key));
+    hiddenFieldsListEl.innerHTML = '';
+    entries.forEach(entry => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'hidden-field-chip';
+      chip.textContent = fieldLabelText(entry);
+      chip.dataset.fieldKey = entry.key;
+      hiddenFieldsListEl.appendChild(chip);
+    });
+    hiddenFieldsEmptyEl.style.display = entries.length ? 'none' : 'block';
+  }
+
+  function applyHiddenFields() {
+    const settings = loadSettings();
+    optionalFieldEntries().forEach(entry => {
+      entry.field.hidden = settings.hiddenFields.includes(entry.key);
+      entry.field.dataset.fieldKey = entry.key;
+      const label = entry.field.querySelector('label');
+      if (label) label.title = 'クリックで今回から非表示にする（「＋」でいつでも戻せます）';
+    });
+    renderHiddenFieldsList();
+  }
+
+  document.addEventListener('click', (e) => {
+    const label = e.target.closest('.field[data-field-key] > label');
+    if (!label) return;
+    const field = label.closest('.field');
+    setFieldHidden(field.dataset.fieldKey, true);
+    applyHiddenFields();
+    showToast('項目を非表示にしました（右上の「＋」でいつでも戻せます）');
+  });
+
+  hiddenFieldsListEl.addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-field-key]');
+    if (!chip) return;
+    setFieldHidden(chip.dataset.fieldKey, false);
+    applyHiddenFields();
+  });
+
+  document.getElementById('open-hidden-fields-btn').addEventListener('click', () => {
+    renderHiddenFieldsList();
+    hiddenFieldsModalOverlay.hidden = false;
+  });
+  document.getElementById('hidden-fields-modal-close').addEventListener('click', () => { hiddenFieldsModalOverlay.hidden = true; });
+  hiddenFieldsModalOverlay.addEventListener('click', (e) => {
+    if (e.target === hiddenFieldsModalOverlay) hiddenFieldsModalOverlay.hidden = true;
+  });
+
+  applyHiddenFields();
 
   // ---------- Brew records: persisted data layer ----------
   const METHOD_LABELS = {
@@ -2792,31 +3042,34 @@
     const settings = loadSettings();
     const method = activeMethod();
     const datetime = brewDatetimeInput.value || nowLocalDatetimeStr();
-    const dose = parseFloat(doseInput.value) || null;
-    const waterVolume = parseFloat(beverageInput.value) || null;
+    const dose = isFieldHidden('dose') ? null : (parseFloat(doseInput.value) || null);
+    const waterVolume = isFieldHidden('beverage') ? null : (parseFloat(beverageInput.value) || null);
 
     const brew = {
       id: 'b' + Date.now(),
       datetime,
       date: datetime.slice(0, 10),
-      bean: beanInput.value.trim(),
+      bean: isFieldHidden('bean') ? '' : beanInput.value.trim(),
       method,
       methodLabel: METHOD_LABELS[method] || method,
       dose,
       waterVolume,
-      temp: parseFloat(tempInput.value) || null,
-      grind: grindInput.value.trim(),
+      temp: isFieldHidden('temp') ? null : (parseFloat(tempInput.value) || null),
+      grind: isFieldHidden('grind') ? '' : grindInput.value.trim(),
       methodFields: {},
       draft: !!draft,
     };
     document.querySelectorAll(`[data-method-group="${method}"] [data-field]`).forEach(el => {
-      if (el.value !== '') brew.methodFields[el.dataset.field] = el.value;
+      const key = `detail:${method}:${el.dataset.field}`;
+      if (el.value !== '' && !isFieldHidden(key)) brew.methodFields[el.dataset.field] = el.value;
     });
     if (method === 'drip') {
-      brew.pours = collectPourValues();
+      // Brew records always store absolute grams, regardless of which unit
+      // was used to type the pours in — a completed brew is a fixed amount.
+      brew.pours = collectPourValues().map(p => ({ ...p, amount: pourAmountGrams(p.amount) }));
       brew.totalBrewSeconds = brew.pours.reduce((s, p) => s + p.interval, 0);
     }
-    if (settings.tds) {
+    if (settings.tds && !isFieldHidden('tds')) {
       const tds = parseFloat(tdsInput.value);
       if (isFinite(tds) && tds > 0) {
         brew.tds = tds;
@@ -2824,9 +3077,9 @@
       }
     }
     if (settings.water) {
-      const gh = document.getElementById('gh-input').value;
-      const kh = document.getElementById('kh-input').value;
-      const recipe = document.getElementById('mineral-input').value.trim();
+      const gh = isFieldHidden('gh') ? '' : document.getElementById('gh-input').value;
+      const kh = isFieldHidden('kh') ? '' : document.getElementById('kh-input').value;
+      const recipe = isFieldHidden('mineral') ? '' : document.getElementById('mineral-input').value.trim();
       if (gh || kh || recipe) brew.water = { gh: gh || null, kh: kh || null, recipe: recipe || null };
     }
     if (settings.wbrc) {
@@ -2840,6 +3093,10 @@
       brew.overall = overall;
     }
     brew.flavorNotes = [...selectedFlavorNotes.entries()].map(([name, color]) => ({ name, color }));
+    if (!isFieldHidden('evaluationMemo')) {
+      const memo = document.getElementById('evaluation-memo').value.trim();
+      if (memo) brew.evaluationMemo = memo;
+    }
     return brew;
   }
 
@@ -2857,11 +3114,12 @@
     selectedFlavorNotes.clear();
     fwRenderFormNotes();
     flavorExamplesEl.querySelectorAll('.fw-example-chip.selected').forEach(c => c.classList.remove('selected'));
+    document.getElementById('evaluation-memo').value = '';
     brewDatetimeInput.value = nowLocalDatetimeStr();
   }
 
   function handleSaveBrew(draft) {
-    if (!draft && !beanInput.value.trim()) {
+    if (!draft && !isFieldHidden('bean') && !beanInput.value.trim()) {
       beanInput.focus();
       showToast('豆の名前を入力してください');
       return;
@@ -2949,6 +3207,7 @@
       } else {
         html += detailRow('総合評価', (b.overall != null ? b.overall : '—') + '/9', true);
       }
+      html += detailRow('評価メモ', b.evaluationMemo || null);
     }
     if (b.flavorNotes && b.flavorNotes.length) {
       html += '<p class="detail-section-title">フレーバーノート</p>';
@@ -2979,6 +3238,7 @@
   });
 
   function applyBrewToForm(b) {
+    activeRecipeRatio = null; // reproducing a past brew uses its fixed absolute amounts
     if (b.method && METHOD_LABELS[b.method]) {
       const tab = document.querySelector(`#method-tabs [data-method="${b.method}"]`);
       if (tab) tab.click();
@@ -2993,6 +3253,8 @@
       if (el && val != null) el.value = val;
     });
     if (b.method === 'drip' && b.pours && b.pours.length) {
+      pourUnit = 'g'; // saved brews always store absolute grams
+      pourUnitButtons.forEach(el => el.setAttribute('aria-pressed', String(el.dataset.unit === 'g')));
       pourCountInput.value = b.pours.length;
       buildPourRows(b.pours.length, b.pours);
     }
