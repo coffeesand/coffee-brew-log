@@ -1,4 +1,4 @@
-const CACHE_NAME = 'brew-log-v20';
+const CACHE_NAME = 'brew-log-v21';
 const CACHE_PREFIX = 'brew-log-';
 const APP_SHELL = [
   './index.html',

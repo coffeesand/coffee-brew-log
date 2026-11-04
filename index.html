@@ -2754,6 +2754,20 @@
   // Migration safety net for beans saved before ids existed (needed for delete-by-id).
   let beansNeedResave = false;
   beans.forEach(b => { if (!b.id) { b.id = 'bean' + Date.now() + Math.random().toString(36).slice(2); beansNeedResave = true; } });
+  // 精製方法の英語表記（Washed など）を日本語表記に統一する。産地欄（"国 / 精製方法"）の末尾も合わせて直す
+  const PROCESS_JA = { washed: 'ウォッシュド', natural: 'ナチュラル', honey: 'ハニー', anaerobic: 'アナエロビック' };
+  const jaProcess = (p) => (p && PROCESS_JA[String(p).trim().toLowerCase()]) || p;
+  beans.forEach(b => {
+    const jp = jaProcess(b.process);
+    if (b.process && jp !== b.process) {
+      if (typeof b.origin === 'string' && b.origin.endsWith(b.process)) b.origin = b.origin.slice(0, -b.process.length) + jp;
+      b.process = jp;
+      beansNeedResave = true;
+    } else if (b.process === undefined && typeof b.origin === 'string') {
+      const m = b.origin.match(/^(.*\s\/\s)(washed|natural|honey|anaerobic)$/i);
+      if (m) { b.origin = m[1] + PROCESS_JA[m[2].toLowerCase()]; beansNeedResave = true; }
+    }
+  });
   if (beansNeedResave) saveBeansToStorage();
 
   // Roast age is computed from the stored roast date at render time,
@@ -2857,7 +2871,7 @@
   const beanChipGroupsEl = document.getElementById('bean-chip-groups');
   const beanFilterClearEl = document.getElementById('bean-filter-clear');
 
-  // 産地は origin("エチオピア / Natural") から精製方法の部分を除いて取り出す
+  // 産地は origin("エチオピア / ナチュラル") から精製方法の部分を除いて取り出す
   function beanCountry(b) {
     let o = (b.origin || '').trim();
     if (b.process && o.endsWith(b.process)) o = o.slice(0, -b.process.length).replace(/[\s/]+$/, '');
@@ -3036,7 +3050,7 @@
 
   // The process dropdown grows over time: base options plus any custom value
   // typed via "その他" on a previous bean, so it only has to be typed once.
-  const BASE_PROCESS_OPTIONS = ['Washed', 'Natural', 'Honey', 'Anaerobic'];
+  const BASE_PROCESS_OPTIONS = ['ウォッシュド', 'ナチュラル', 'ハニー', 'アナエロビック'];
   const UNKNOWN_PROCESS = '不明';
   function knownProcessOptions() {
     const learned = [];
@@ -3069,10 +3083,10 @@
     beanFormProcessOtherWrap.hidden = beanFormProcess.value !== 'other';
   }
   beanFormProcess.addEventListener('change', updateProcessOtherVisibility);
-  renderProcessOptions('Washed');
+  renderProcessOptions(BASE_PROCESS_OPTIONS[0]);
 
   function openBeanModal() {
-    renderProcessOptions('Washed');
+    renderProcessOptions(BASE_PROCESS_OPTIONS[0]);
     beanModalOverlay.hidden = false;
     beanFormName.focus();
   }
@@ -3080,7 +3094,7 @@
   function resetBeanForm() {
     beanFormName.value = '';
     beanFormCountry.value = '';
-    renderProcessOptions('Washed');
+    renderProcessOptions(BASE_PROCESS_OPTIONS[0]);
     beanFormProcessOther.value = '';
     updateProcessOtherVisibility();
     beanFormRoast.value = '中煎り';
