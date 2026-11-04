@@ -122,7 +122,6 @@
     flex: 1;
     min-width: 0; /* let flex-basis:0% actually shrink below content min-size */
     padding: 24px 24px 96px;
-    max-width: 1000px;
   }
   .view { display: none; }
   .view.active { display: block; }
@@ -525,6 +524,8 @@
     z-index: 50;
   }
   .modal-overlay[hidden] { display: none; }
+  .modal-overlay { overscroll-behavior: contain; }
+  html.modal-open, html.modal-open body { overflow: hidden; }
   .modal-box {
     background: var(--surface-1);
     border: 1px solid var(--border);
@@ -534,6 +535,7 @@
     width: 100%;
     max-height: 88vh;
     overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .modal-head {
     display: flex;
@@ -758,6 +760,26 @@
     font-weight: 600;
     color: var(--brand);
   }
+
+  /* ---------- 確認ポップアップ（操作した場所のすぐ近くに出る） ---------- */
+  .pop-backdrop { position: fixed; inset: 0; z-index: 130; background: transparent; }
+  .pop-box {
+    position: fixed;
+    z-index: 131;
+    width: min(280px, calc(100vw - 16px));
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.55);
+    padding: 14px;
+  }
+  .pop-msg { margin: 0 0 12px; font-size: 13px; line-height: 1.6; color: var(--text-primary); white-space: pre-wrap; }
+  .pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .pop-actions button { font-family: inherit; font-size: 13px; padding: 8px 14px; border-radius: 6px; cursor: pointer; }
+  .pop-cancel { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
+  .pop-ok { background: var(--brand); color: #1a1408; border: 1px solid transparent; font-weight: 700; }
+  .pop-ok.danger { background: transparent; color: var(--status-critical); border: 1px solid var(--status-critical); }
+  @media (hover: none) { .pop-actions button { padding: 11px 16px; font-size: 14px; } }
 
   /* ---------- Beans ---------- */
   .bean-grid {
@@ -1867,10 +1889,11 @@
     applyRecipe(recipes[Number(recipeSelect.value)]);
   });
 
-  deleteRecipeBtn.addEventListener('click', () => {
+  deleteRecipeBtn.addEventListener('click', async () => {
     const idx = Number(recipeSelect.value);
     if (Number.isNaN(idx) || !recipes[idx]) return;
-    if (!confirm(`「${recipes[idx].name}」を削除しますか？`)) return;
+    if (!(await askConfirm(`「${recipes[idx].name}」を削除しますか？`, '削除', true))) return;
+    if (!recipes[idx]) return;
     if (editingRecipeIndex === idx) exitRecipeEditMode();
     recipes.splice(idx, 1);
     saveRecipesToStorage(recipes);
@@ -1976,12 +1999,13 @@
     recipeGridEmptyEl.style.display = recipes.length ? 'none' : 'block';
   }
 
-  recipeGridEl.addEventListener('click', (e) => {
+  recipeGridEl.addEventListener('click', async (e) => {
     const delBtn = e.target.closest('[data-delete-recipe]');
     if (delBtn) {
       const idx = Number(delBtn.dataset.deleteRecipe);
       if (!recipes[idx]) return;
-      if (!confirm(`「${recipes[idx].name}」を削除しますか？`)) return;
+      if (!(await askConfirm(`「${recipes[idx].name}」を削除しますか？`, '削除', true))) return;
+      if (!recipes[idx]) return;
       if (editingRecipeIndex === idx) exitRecipeEditMode();
       recipes.splice(idx, 1);
       saveRecipesToStorage(recipes);
@@ -2706,10 +2730,10 @@
     beanGridUsedEmptyEl.style.display = used.length ? 'none' : 'block';
   }
 
-  function deleteBean(id) {
+  async function deleteBean(id) {
     const bean = beans.find(b => b.id === id);
     if (!bean) return;
-    if (!confirm(`「${bean.name}」を削除しますか？`)) return;
+    if (!(await askConfirm(`「${bean.name}」を削除しますか？`, '削除', true))) return;
     beans = beans.filter(b => b.id !== id);
     saveBeansToStorage();
     refreshDataViews();
@@ -3075,6 +3099,70 @@
     toastTimer = setTimeout(() => toastEl.classList.remove('visible'), 2600);
   }
 
+  // ---------- 確認ポップアップ（ブラウザ標準の confirm の代わり） ----------
+  // 直前に操作した場所（クリック/タップ位置）のすぐ近くに出すので、削除ボタンから視線・マウスが遠くならない
+  let lastPoint = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+  document.addEventListener('pointerdown', (e) => { lastPoint = { x: e.clientX, y: e.clientY }; }, true);
+  document.addEventListener('click', (e) => { // キーボード操作（detail===0）のときは押した要素の位置を使う
+    if (e.detail === 0 && e.target.getBoundingClientRect) {
+      const r = e.target.getBoundingClientRect();
+      lastPoint = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }
+  }, true);
+  function askConfirm(message, okLabel = 'OK', danger = false) {
+    return new Promise((resolve) => {
+      const at = lastPoint;
+      const backdrop = document.createElement('div');
+      backdrop.className = 'pop-backdrop';
+      const box = document.createElement('div');
+      box.className = 'pop-box';
+      box.setAttribute('role', 'alertdialog');
+      const msg = document.createElement('p');
+      msg.className = 'pop-msg';
+      msg.textContent = message;
+      const actions = document.createElement('div');
+      actions.className = 'pop-actions';
+      const cancel = document.createElement('button');
+      cancel.type = 'button'; cancel.className = 'pop-cancel'; cancel.textContent = 'キャンセル';
+      const ok = document.createElement('button');
+      ok.type = 'button'; ok.className = 'pop-ok' + (danger ? ' danger' : ''); ok.textContent = okLabel;
+      actions.appendChild(cancel); actions.appendChild(ok);
+      box.appendChild(msg); box.appendChild(actions);
+      document.body.appendChild(backdrop);
+      document.body.appendChild(box);
+
+      // 操作位置の少し下に出す。画面外にはみ出す場合は上や端に寄せる
+      const r = box.getBoundingClientRect();
+      const left = Math.max(8, Math.min(at.x - r.width / 2, window.innerWidth - r.width - 8));
+      let top = at.y + 12;
+      if (top + r.height > window.innerHeight - 8) top = Math.max(8, at.y - r.height - 12);
+      box.style.left = left + 'px';
+      box.style.top = top + 'px';
+
+      const finish = (v) => {
+        document.removeEventListener('keydown', onKey, true);
+        backdrop.remove(); box.remove();
+        resolve(v);
+      };
+      const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); finish(false); } };
+      document.addEventListener('keydown', onKey, true);
+      backdrop.addEventListener('pointerdown', (e) => { e.preventDefault(); finish(false); });
+      backdrop.addEventListener('contextmenu', (e) => e.preventDefault());
+      cancel.addEventListener('click', () => finish(false));
+      ok.addEventListener('click', () => finish(true));
+      cancel.focus({ preventScroll: true }); // 誤操作防止のため「キャンセル」にフォーカス
+    });
+  }
+
+  // ---------- モーダル表示中は背景のスクロールを止める ----------
+  (function initScrollLock() {
+    const overlays = Array.from(document.querySelectorAll('.modal-overlay'));
+    const update = () => document.documentElement.classList.toggle('modal-open', overlays.some((el) => !el.hidden));
+    const obs = new MutationObserver(update);
+    overlays.forEach((el) => obs.observe(el, { attributes: true, attributeFilter: ['hidden'] }));
+    update();
+  })();
+
   // ---------- Save brew records (記録する / 下書き保存) ----------
   const brewDatetimeInput = document.getElementById('brew-datetime');
   function nowLocalDatetimeStr() {
@@ -3272,16 +3360,17 @@
     if (e.target === detailModalOverlay) closeDetailModal();
   });
 
-  document.getElementById('detail-delete-btn').addEventListener('click', () => {
-    const b = findBrew(detailBrewId);
+  async function deleteBrew(id) {
+    const b = findBrew(id);
     if (!b) return;
-    if (!confirm('この記録を削除しますか？')) return;
-    brews = brews.filter(x => x.id !== detailBrewId);
+    if (!(await askConfirm('この記録を削除しますか？', '削除', true))) return;
+    brews = brews.filter(x => x.id !== id);
     saveBrewsToStorage();
     refreshDataViews();
-    closeDetailModal();
+    if (detailBrewId === id) closeDetailModal();
     showToast('記録を削除しました');
-  });
+  }
+  document.getElementById('detail-delete-btn').addEventListener('click', () => deleteBrew(detailBrewId));
 
   function applyBrewToForm(b) {
     activeRecipeRatio = null; // reproducing a past brew uses its fixed absolute amounts
@@ -3343,11 +3432,11 @@
     importFileInput.value = '';
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
         const payload = JSON.parse(reader.result);
         if (!payload || payload.app !== 'brew-log' || !payload.data) throw new Error('bad format');
-        if (!confirm('現在のデータをインポート内容で上書きします。よろしいですか？')) return;
+        if (!(await askConfirm('現在のデータをインポート内容で上書きします。よろしいですか？', '上書きする', true))) return;
         Object.entries(STORAGE_KEYS).forEach(([name, key]) => {
           if (payload.data[name] != null) localStorage.setItem(key, JSON.stringify(payload.data[name]));
         });
@@ -3496,8 +3585,8 @@
       if (!syncCfg()) { showToast('先に接続設定を保存してください'); return; }
       syncNow(true);
     });
-    document.getElementById('bl-sync-off-btn').addEventListener('click', () => {
-      if (!confirm('接続を解除します（この端末のデータは残ります）。よろしいですか？')) return;
+    document.getElementById('bl-sync-off-btn').addEventListener('click', async () => {
+      if (!(await askConfirm('接続を解除します（この端末のデータは残ります）。よろしいですか？', '解除する', true))) return;
       localStorage.removeItem(BL_CFG_KEY);
       blTokenEl.value = '';
       syncReady = false;
