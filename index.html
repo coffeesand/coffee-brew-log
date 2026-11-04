@@ -787,6 +787,67 @@
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     gap: 14px;
   }
+  /* PC表示(サイドバーあり): 豆カードの列数は設定の 広め=1 / 標準=2 / 狭め=3 */
+  @media (min-width: 901px) {
+    .bean-grid { grid-template-columns: repeat(var(--bean-cols, 2), minmax(0, 1fr)); }
+  }
+  @media (min-width: 901px) and (max-width: 1279px) { /* 幅が狭めのPCでは最大2列 */
+    .bean-grid { grid-template-columns: repeat(min(var(--bean-cols, 2), 2), minmax(0, 1fr)); }
+  }
+  .pc-only-setting { display: none; }
+  @media (min-width: 901px) { .pc-only-setting { display: block; } }
+  .secondary-btn.active { color: var(--brand); border-color: var(--brand); background: var(--brand-tint); }
+
+  /* 検索・絞り込み */
+  .bean-filter { margin-bottom: 18px; display: flex; flex-direction: column; gap: 10px; }
+  .bean-search {
+    width: 100%; max-width: 420px; font-family: inherit; font-size: 14px;
+    padding: 9px 12px; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-primary);
+  }
+  .bean-search::placeholder { color: var(--text-muted); }
+  .bean-chip-row { display: flex; align-items: center; gap: 8px; }
+  .bean-chip-label { font-size: 12px; color: var(--text-muted); flex-shrink: 0; width: 56px; }
+  .bean-chip-list { display: flex; gap: 6px; flex-wrap: wrap; }
+  .bean-chip {
+    padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-secondary); font-size: 12px;
+    font-family: inherit; cursor: pointer; white-space: nowrap;
+  }
+  .bean-chip:hover { border-color: var(--brand); }
+  .bean-chip[aria-pressed="true"] { border-color: var(--brand); background: var(--brand-tint); color: var(--brand); }
+  .bean-filter-clear { align-self: flex-start; background: none; border: none; color: var(--text-muted); font-size: 12px; cursor: pointer; padding: 2px 4px; }
+  .bean-filter-clear:hover { color: var(--brand); }
+  @media (max-width: 520px) {
+      .bean-chip-list { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+    .bean-chip-list::-webkit-scrollbar { display: none; }
+  }
+
+  /* 残量の手動調整（−10 / ＋10 / 数字タップで直接入力） */
+  .stock-ctl { display: inline-flex; align-items: center; gap: 6px; }
+  .bean-meta-row.stock-row { align-items: center; }
+  .stock-step {
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary);
+    border-radius: 6px; padding: 4px 8px; font-size: 12px; font-family: var(--font-mono);
+    min-width: 46px; cursor: pointer;
+  }
+  .stock-step:hover:not(:disabled) { border-color: var(--brand); color: var(--brand); }
+  .stock-step:disabled { opacity: 0.35; cursor: default; }
+  .stock-val {
+    background: none; border: none; border-bottom: 1px dashed var(--text-muted);
+    color: var(--text-primary); font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    font-size: 13px; padding: 0 2px; cursor: text;
+  }
+  .stock-val:hover { border-bottom-color: var(--brand); color: var(--brand); }
+  .stock-edit {
+    width: 76px; font-family: var(--font-mono); font-size: 13px; padding: 3px 6px;
+    border-radius: 6px; border: 1px solid var(--brand); background: var(--surface-2); color: var(--text-primary);
+  }
+  .stock-pct { color: var(--text-muted); font-size: 11px; min-width: 34px; text-align: right; }
+  @media (hover: none) {
+    .stock-step { padding: 8px 10px; min-width: 54px; font-size: 13px; }
+    .stock-val { font-size: 14px; }
+  }
   .bean-card { padding: 14px; }
   .bean-card-head {
     display: flex;
@@ -1216,6 +1277,12 @@
           <button class="primary-btn" id="open-bean-modal-btn" type="button">＋ 豆を追加</button>
         </div>
 
+        <div class="bean-filter">
+          <input type="search" class="bean-search" id="bean-search" placeholder="豆の名前・産地で検索" aria-label="豆を検索" autocomplete="off" />
+          <div id="bean-chip-groups"></div>
+          <button class="bean-filter-clear" id="bean-filter-clear" type="button" hidden>絞り込みを解除</button>
+        </div>
+
         <p class="section-title">使用中の豆</p>
         <div class="bean-grid" id="bean-grid-active"></div>
         <p class="empty-hint" id="bean-grid-active-empty" style="display:none;font-size:13px;color:var(--text-muted);">使用中の豆はありません</p>
@@ -1282,6 +1349,16 @@
                 <input type="checkbox" data-setting="detail" checked />
                 <span class="track"></span><span class="thumb"></span>
               </label>
+            </div>
+          </div>
+
+          <div class="settings-group pc-only-setting">
+            <h2>豆管理の表示幅（PC表示）</h2>
+            <p class="group-hint">豆管理の豆カードの並びです。広めほど1枚が横に広く、並ぶ列数が減ります。</p>
+            <div class="preset-row" id="bean-width-opts">
+              <button class="secondary-btn" type="button" data-size="l">広め</button>
+              <button class="secondary-btn" type="button" data-size="m">標準</button>
+              <button class="secondary-btn" type="button" data-size="s">狭め</button>
             </div>
           </div>
 
@@ -1412,27 +1489,6 @@
       <div class="modal-foot">
         <button class="secondary-btn" id="bean-modal-cancel" type="button">キャンセル</button>
         <button class="primary-btn" id="bean-modal-save" type="button">追加する</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Adjust bean stock modal -->
-  <div class="modal-overlay" id="stock-modal-overlay" hidden>
-    <div class="modal-box" role="dialog" aria-modal="true" aria-label="残量を調整" style="max-width: 380px;">
-      <div class="modal-head">
-        <h2>残量を調整</h2>
-        <button class="modal-close" id="stock-modal-close" type="button" aria-label="閉じる">✕</button>
-      </div>
-      <div class="modal-body" style="flex-direction: column;">
-        <p class="empty-hint" id="stock-modal-hint" style="font-size:12px;color:var(--text-muted);margin:0 0 4px;"></p>
-        <div class="field">
-          <label>残量 (g)</label>
-          <input type="number" id="stock-modal-input" min="0" step="1" />
-        </div>
-      </div>
-      <div class="modal-foot">
-        <button class="secondary-btn" id="stock-modal-cancel" type="button">キャンセル</button>
-        <button class="primary-btn" id="stock-modal-save" type="button">保存する</button>
       </div>
     </div>
   </div>
@@ -2654,9 +2710,13 @@
   function beanDerivedRemainingGrams(bean) {
     return Math.max(0, (bean.purchaseWeight || 0) - beanUsedGrams(bean.name));
   }
+  const round1 = (n) => Math.round(n * 10) / 10;
   function beanRemainingGrams(bean) {
-    return Math.max(0, beanDerivedRemainingGrams(bean) + (bean.adjustment || 0));
+    return Math.max(0, round1(beanDerivedRemainingGrams(bean) + (bean.adjustment || 0)));
   }
+  // 「以前購入した豆」への分類は、残量がちょうど 0g かどうかで判定する
+  // （割合(%)は四捨五入なので、残り1gでも0%になってしまうため）
+  function beanIsUsedUp(bean) { return beanRemainingGrams(bean) <= 0; }
   function beanStockPct(bean) {
     if (!bean.purchaseWeight) return 0;
     return Math.min(100, Math.round((beanRemainingGrams(bean) / bean.purchaseWeight) * 100));
@@ -2681,7 +2741,7 @@
 
   function renderBeanAlerts() {
     beanAlertsEl.innerHTML = '';
-    beans.filter(b => beanStockPct(b) <= 20).forEach(b => {
+    beans.filter(b => !beanIsUsedUp(b) && beanStockPct(b) <= 20).forEach(b => {
       const row = document.createElement('div');
       row.className = 'bean-alert';
       row.innerHTML = `<span>${b.name}</span><span class="badge-warning">残り${beanRemainingGrams(b)}g（${beanStockPct(b)}%）</span>`;
@@ -2698,6 +2758,7 @@
     const roastDays = beanRoastDays(b);
     const card = document.createElement('div');
     card.className = 'card bean-card';
+    card.dataset.beanId = b.id;
     card.innerHTML = `
       <div class="bean-card-head">
         <div>
@@ -2705,27 +2766,110 @@
           <div class="bean-origin">${escapeHtml(b.origin)}・${escapeHtml(b.roast)}</div>
         </div>
         <div style="display:flex; align-items:center; gap:6px;">
-          ${pct > 0 && pct <= 20 ? '<span class="badge-warning">残量少</span>' : ''}
-          <button class="icon-btn" type="button" data-adjust-stock="${escapeHtml(b.id)}" aria-label="残量を調整" title="残量を調整"><span class="icon" data-icon="scale"></span></button>
+          ${remaining > 0 && pct <= 20 ? '<span class="badge-warning">残量少</span>' : ''}
           <button class="icon-btn" type="button" data-delete-bean="${escapeHtml(b.id)}" aria-label="この豆を削除" title="削除"><span class="icon" data-icon="trash"></span></button>
         </div>
       </div>
       <div class="bean-meta-row"><span>焙煎からの経過</span><span>${roastDays != null ? roastDays + '日' : '—'}</span></div>
       <div class="bean-meta-row"><span>購入量</span><span>${b.purchaseWeight}g</span></div>
-      <div class="bean-meta-row"><span>残量</span><span>${remaining}g（${pct}%）</span></div>
-      <div class="stock-bar-track"><div class="stock-bar-fill ${pct <= 20 ? 'low' : ''}" style="width:${pct}%;"></div></div>
+      <div class="bean-meta-row stock-row"><span>残量</span>
+        <span class="stock-ctl">
+          <button class="stock-step" type="button" data-stock-step="-10" data-bean="${escapeHtml(b.id)}" ${remaining <= 0 ? 'disabled' : ''} aria-label="残量を10g減らす">−10</button>
+          <button class="stock-val" type="button" data-stock-edit="${escapeHtml(b.id)}" title="タップして数値を入力">${remaining}g</button>
+          <button class="stock-step" type="button" data-stock-step="10" data-bean="${escapeHtml(b.id)}" aria-label="残量を10g増やす">＋10</button>
+          <span class="stock-pct">${pct}%</span>
+        </span>
+      </div>
+      <div class="stock-bar-track"><div class="stock-bar-fill ${remaining > 0 && pct <= 20 ? 'low' : ''}" style="width:${remaining > 0 ? Math.max(pct, 2) : 0}%;"></div></div>
     `;
     renderIcons(card);
     return card;
   }
 
+  // ---------- Bean search / filter (既存の項目: 焙煎度・精製方法・産地) ----------
+  const ROAST_ORDER = ['浅煎り', '中浅煎り', '中煎り', '中深煎り', '深煎り', '不明'];
+  const beanFilter = { q: '', roast: new Set(), process: new Set(), country: new Set() };
+  const beanSearchEl = document.getElementById('bean-search');
+  const beanChipGroupsEl = document.getElementById('bean-chip-groups');
+  const beanFilterClearEl = document.getElementById('bean-filter-clear');
+
+  // 産地は origin("エチオピア / Natural") から精製方法の部分を除いて取り出す
+  function beanCountry(b) {
+    let o = (b.origin || '').trim();
+    if (b.process && o.endsWith(b.process)) o = o.slice(0, -b.process.length).replace(/[\s/]+$/, '');
+    else if (b.process === undefined && o.includes(' / ')) o = o.split(' / ')[0];
+    return o.trim();
+  }
+  function beanFilterActive() {
+    return !!beanFilter.q.trim() || beanFilter.roast.size || beanFilter.process.size || beanFilter.country.size;
+  }
+  function beanMatchesFilter(b) {
+    const q = beanFilter.q.trim().toLowerCase();
+    if (q && !`${b.name} ${b.origin || ''}`.toLowerCase().includes(q)) return false;
+    if (beanFilter.roast.size && !beanFilter.roast.has(b.roast)) return false;
+    if (beanFilter.process.size && !beanFilter.process.has(b.process || '')) return false;
+    if (beanFilter.country.size && !beanFilter.country.has(beanCountry(b))) return false;
+    return true;
+  }
+  function renderBeanFilterChips() {
+    const uniq = (arr) => arr.filter((v, i) => v && arr.indexOf(v) === i);
+    const groups = [
+      { key: 'roast', label: '焙煎度', values: ROAST_ORDER.filter(r => beans.some(b => b.roast === r)) },
+      { key: 'process', label: '精製方法', values: uniq(beans.map(b => b.process)) },
+      { key: 'country', label: '産地', values: uniq(beans.map(beanCountry)).sort((a, c) => a.localeCompare(c, 'ja')) },
+    ];
+    beanChipGroupsEl.innerHTML = '';
+    groups.forEach(g => {
+      if (!g.values.length) return;
+      const row = document.createElement('div');
+      row.className = 'bean-chip-row';
+      row.innerHTML = `<span class="bean-chip-label">${g.label}</span><div class="bean-chip-list"></div>`;
+      const list = row.querySelector('.bean-chip-list');
+      g.values.forEach(v => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'bean-chip';
+        chip.textContent = v;
+        chip.dataset.filterKey = g.key;
+        chip.dataset.filterValue = v;
+        chip.setAttribute('aria-pressed', String(beanFilter[g.key].has(v)));
+        list.appendChild(chip);
+      });
+      beanChipGroupsEl.appendChild(row);
+    });
+    beanFilterClearEl.hidden = !beanFilterActive();
+  }
+  function setBeanFilter(patch) { // 絞り込みを丸ごと置き換える（右クリックメニューの「だけ表示」用）
+    beanFilter.q = '';
+    beanFilter.roast = new Set(); beanFilter.process = new Set(); beanFilter.country = new Set();
+    Object.entries(patch || {}).forEach(([k, v]) => { beanFilter[k] = new Set([v]); });
+    beanSearchEl.value = '';
+    renderBeanGrid();
+  }
+  beanSearchEl.addEventListener('input', () => { beanFilter.q = beanSearchEl.value; renderBeanGrid(); });
+  beanChipGroupsEl.addEventListener('click', (e) => {
+    const chip = e.target.closest('.bean-chip');
+    if (!chip) return;
+    const set = beanFilter[chip.dataset.filterKey];
+    const v = chip.dataset.filterValue;
+    if (set.has(v)) set.delete(v); else set.add(v);
+    renderBeanGrid();
+  });
+  beanFilterClearEl.addEventListener('click', () => setBeanFilter());
+
   function renderBeanGrid() {
     beanGridActiveEl.innerHTML = '';
     beanGridUsedEl.innerHTML = '';
-    const active = beans.filter(b => beanStockPct(b) > 0);
-    const used = beans.filter(b => beanStockPct(b) === 0);
+    renderBeanFilterChips();
+    const shown = beans.filter(beanMatchesFilter);
+    // 残量が 0g になった豆は「以前購入した豆」へ。残量を戻す（＋10gなど）と使用中に戻る
+    const active = shown.filter(b => !beanIsUsedUp(b));
+    const used = shown.filter(beanIsUsedUp);
     active.forEach(b => beanGridActiveEl.appendChild(buildBeanCard(b)));
     used.forEach(b => beanGridUsedEl.appendChild(buildBeanCard(b)));
+    const filtering = beanFilterActive();
+    beanGridActiveEmptyEl.textContent = filtering ? '条件に一致する使用中の豆はありません' : '使用中の豆はありません';
+    beanGridUsedEmptyEl.textContent = filtering ? '条件に一致する以前購入した豆はありません' : '以前購入した豆はありません';
     beanGridActiveEmptyEl.style.display = active.length ? 'none' : 'block';
     beanGridUsedEmptyEl.style.display = used.length ? 'none' : 'block';
   }
@@ -2739,47 +2883,78 @@
     refreshDataViews();
     showToast('豆を削除しました');
   }
+
+  // ---------- 残量の手動調整 ----------
+  // 内部表現は従来どおり: 残量 = 購入量 − 記録上の使用量 + adjustment（手動補正）
+  function setBeanRemaining(bean, grams) {
+    const before = beanRemainingGrams(bean);
+    const target = Math.max(0, round1(grams));
+    bean.adjustment = round1(target - beanDerivedRemainingGrams(bean));
+    saveBeansToStorage();
+    refreshDataViews();
+    if (target === 0 && before > 0) showToast(`「${bean.name}」を使い切りにしました（以前購入した豆へ移動）`);
+    else if (target > 0 && before === 0) showToast(`「${bean.name}」を使用中に戻しました`);
+  }
+  function stepBeanStock(id, delta) {
+    const bean = beans.find(b => b.id === id);
+    if (bean) setBeanRemaining(bean, beanRemainingGrams(bean) + delta);
+  }
+  function startStockEdit(id) {
+    const bean = beans.find(b => b.id === id);
+    const card = beanCardEl(id);
+    const btn = card && card.querySelector('[data-stock-edit]');
+    if (!bean || !btn) return;
+    const input = document.createElement('input');
+    input.type = 'number'; input.className = 'stock-edit';
+    input.min = '0'; input.step = 'any'; input.inputMode = 'decimal';
+    input.value = beanRemainingGrams(bean);
+    btn.replaceWith(input);
+    input.focus(); input.select();
+    let done = false;
+    const commit = () => {
+      if (done) return; done = true;
+      const v = parseFloat(input.value);
+      if (Number.isNaN(v)) renderBeanGrid(); else setBeanRemaining(bean, v);
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      else if (e.key === 'Escape') { done = true; renderBeanGrid(); }
+    });
+    input.addEventListener('blur', commit);
+  }
+  function beanCardEl(id) {
+    return document.querySelector(`#view-beans .bean-card[data-bean-id="${CSS.escape(id)}"]`);
+  }
+
   [beanGridActiveEl, beanGridUsedEl].forEach(el => {
     el.addEventListener('click', (e) => {
       const deleteBtn = e.target.closest('[data-delete-bean]');
       if (deleteBtn) { deleteBean(deleteBtn.dataset.deleteBean); return; }
-      const adjustBtn = e.target.closest('[data-adjust-stock]');
-      if (adjustBtn) { openStockModal(adjustBtn.dataset.adjustStock); }
+      const stepBtn = e.target.closest('[data-stock-step]');
+      if (stepBtn) { stepBeanStock(stepBtn.dataset.bean, Number(stepBtn.dataset.stockStep)); return; }
+      const editBtn = e.target.closest('[data-stock-edit]');
+      if (editBtn) { startStockEdit(editBtn.dataset.stockEdit); }
     });
   });
 
-  // ---------- Adjust bean stock modal ----------
-  const stockModalOverlay = document.getElementById('stock-modal-overlay');
-  const stockModalHint = document.getElementById('stock-modal-hint');
-  const stockModalInput = document.getElementById('stock-modal-input');
-  let stockModalBeanId = null;
-
-  function openStockModal(id) {
-    const bean = beans.find(b => b.id === id);
-    if (!bean) return;
-    stockModalBeanId = id;
-    stockModalHint.textContent = `${bean.name}／購入量 ${bean.purchaseWeight}g／使用量（記録から算出） ${beanUsedGrams(bean.name)}g`;
-    stockModalInput.value = beanRemainingGrams(bean);
-    stockModalOverlay.hidden = false;
-    stockModalInput.focus();
+  // ---------- 豆管理の表示幅（PC）: 広め=1列 / 標準=2列 / 狭め=3列 ----------
+  const BEAN_SIZE_KEY = 'brewLog.beanSize';
+  const BEAN_SIZE_COLS = { l: 1, m: 2, s: 3 };
+  function currentBeanSize() { let v = null; try { v = localStorage.getItem(BEAN_SIZE_KEY); } catch {} return BEAN_SIZE_COLS[v] ? v : 'm'; }
+  function applyBeanSize(v) { document.documentElement.style.setProperty('--bean-cols', BEAN_SIZE_COLS[v]); }
+  const beanWidthOpts = document.getElementById('bean-width-opts');
+  function renderBeanWidthOpts() {
+    beanWidthOpts.querySelectorAll('button').forEach(btn => btn.classList.toggle('active', btn.dataset.size === currentBeanSize()));
   }
-  function closeStockModal() { stockModalOverlay.hidden = true; stockModalBeanId = null; }
-
-  document.getElementById('stock-modal-close').addEventListener('click', closeStockModal);
-  document.getElementById('stock-modal-cancel').addEventListener('click', closeStockModal);
-  stockModalOverlay.addEventListener('click', (e) => {
-    if (e.target === stockModalOverlay) closeStockModal();
+  beanWidthOpts.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-size]');
+    if (!btn) return;
+    try { localStorage.setItem(BEAN_SIZE_KEY, btn.dataset.size); } catch {}
+    applyBeanSize(btn.dataset.size);
+    renderBeanWidthOpts();
   });
-  document.getElementById('stock-modal-save').addEventListener('click', () => {
-    const bean = beans.find(b => b.id === stockModalBeanId);
-    if (!bean) return;
-    const newRemaining = Math.max(0, parseInt(stockModalInput.value, 10) || 0);
-    bean.adjustment = newRemaining - beanDerivedRemainingGrams(bean);
-    saveBeansToStorage();
-    refreshDataViews();
-    closeStockModal();
-    showToast('残量を更新しました');
-  });
+  applyBeanSize(currentBeanSize());
+  renderBeanWidthOpts();
 
   refreshDataViews();
   if (beans.length) beanInput.value = beans[0].name;
@@ -3086,7 +3261,6 @@
     if (!recipeModalOverlay.hidden) closeRecipeModal();
     if (!quickModalOverlay.hidden) closeQuickModal();
     if (!detailModalOverlay.hidden) closeDetailModal();
-    if (!stockModalOverlay.hidden) closeStockModal();
   });
 
   // ---------- Toast ----------
