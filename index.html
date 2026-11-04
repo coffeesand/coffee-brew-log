@@ -781,6 +781,32 @@
   .pop-ok.danger { background: transparent; color: var(--status-critical); border: 1px solid var(--status-critical); }
   @media (hover: none) { .pop-actions button { padding: 11px 16px; font-size: 14px; } }
 
+  /* ---------- 右クリック／長押しメニュー ---------- */
+  .ctx-menu {
+    position: fixed; z-index: 120; min-width: 200px;
+    max-width: min(320px, calc(100vw - 16px)); max-height: calc(100vh - 16px);
+    overflow-y: auto; padding: 6px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-size: 13px; outline: none; overscroll-behavior: contain;
+  }
+  .ctx-menu[hidden] { display: none; }
+  .ctx-item {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    background: none; border: none; border-radius: 6px; padding: 9px 12px;
+    color: var(--text-primary); font-family: inherit; font-size: 13px; cursor: pointer;
+  }
+  .ctx-item:hover, .ctx-item:focus-visible { background: var(--brand-tint); outline: none; }
+  .ctx-item.danger { color: var(--status-critical); }
+  .ctx-item:disabled { color: var(--text-muted); cursor: default; background: none; }
+  .ctx-item .ctx-label { flex: 1; }
+  .ctx-item .ctx-mark { width: 14px; color: var(--brand); flex-shrink: 0; }
+  .ctx-item .ctx-arrow { color: var(--text-muted); }
+  .ctx-sep { height: 1px; background: var(--gridline); margin: 5px 4px; }
+  @media (hover: none) {
+    .ctx-item { padding: 12px 14px; font-size: 14px; }
+    .bean-card, .recipe-card, .history-table tr, .brew-row { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  }
+
   /* ---------- Beans ---------- */
   .bean-grid {
     display: grid;
@@ -951,6 +977,34 @@
       padding: 10px 6px;
     }
     .main-content { max-width: 100%; }
+  }
+
+  /* スマホ: 履歴の表を横スクロールではなくカード形式の縦リストにする */
+  @media (max-width: 520px) {
+    .table-scroll { overflow-x: visible; padding: 4px 14px; }
+    table.history-table, .history-table tbody { display: block; min-width: 0; }
+    .history-table thead { display: none; }
+    .history-table tr {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      grid-template-areas: "bean overall" "date method" "tds yield";
+      gap: 3px 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--gridline);
+      cursor: pointer;
+    }
+    .history-table tr:last-child { border-bottom: none; }
+    .history-table td { display: block; padding: 0; border: none; }
+    .history-table td:nth-child(1) { grid-area: date; color: var(--text-muted); font-size: 12px; }
+    .history-table td:nth-child(2) { grid-area: bean; font-weight: 600; font-size: 14px; }
+    .history-table td:nth-child(3) { grid-area: method; text-align: right; color: var(--text-secondary); font-size: 12px; }
+    .history-table td:nth-child(4) { grid-area: tds; font-size: 12px; color: var(--text-secondary); }
+    .history-table td:nth-child(5) { grid-area: yield; text-align: right; font-size: 12px; color: var(--text-secondary); }
+    .history-table td:nth-child(6) { grid-area: overall; text-align: right; font-size: 14px; }
+    .history-table td:nth-child(4)::before { content: "TDS "; color: var(--text-muted); font-family: var(--font-body); }
+    .history-table td:nth-child(5)::before { content: "収率 "; color: var(--text-muted); font-family: var(--font-body); }
+    .history-table td[colspan] { grid-area: 1 / 1 / 2 / -1; }
+    .history-table td[colspan]::before { content: none; }
   }
 
   @media (max-width: 520px) {
@@ -2027,6 +2081,7 @@
   function buildRecipeCard(recipe, index) {
     const card = document.createElement('div');
     card.className = 'card recipe-card';
+    card.dataset.recipeIndex = String(index);
     card.innerHTML = `
       <div class="recipe-card-head">
         <div>
@@ -2055,21 +2110,28 @@
     recipeGridEmptyEl.style.display = recipes.length ? 'none' : 'block';
   }
 
-  recipeGridEl.addEventListener('click', async (e) => {
+  async function deleteRecipeAt(idx) {
+    if (!recipes[idx]) return;
+    if (!(await askConfirm(`「${recipes[idx].name}」を削除しますか？`, '削除', true))) return;
+    if (!recipes[idx]) return;
+    if (editingRecipeIndex === idx) exitRecipeEditMode();
+    recipes.splice(idx, 1);
+    saveRecipesToStorage(recipes);
+    renderRecipeSelect();
+    renderRecipeGrid();
+    showToast('レシピを削除しました');
+  }
+  function useRecipeAt(idx) {
+    if (!recipes[idx]) return;
+    exitRecipeEditMode();
+    applyRecipe(recipes[idx]);
+    setView('log-form');
+    showToast('レシピをフォームに反映しました');
+  }
+
+  recipeGridEl.addEventListener('click', (e) => {
     const delBtn = e.target.closest('[data-delete-recipe]');
-    if (delBtn) {
-      const idx = Number(delBtn.dataset.deleteRecipe);
-      if (!recipes[idx]) return;
-      if (!(await askConfirm(`「${recipes[idx].name}」を削除しますか？`, '削除', true))) return;
-      if (!recipes[idx]) return;
-      if (editingRecipeIndex === idx) exitRecipeEditMode();
-      recipes.splice(idx, 1);
-      saveRecipesToStorage(recipes);
-      renderRecipeSelect();
-      renderRecipeGrid();
-      showToast('レシピを削除しました');
-      return;
-    }
+    if (delBtn) { deleteRecipeAt(Number(delBtn.dataset.deleteRecipe)); return; }
     const useBtn = e.target.closest('[data-use-recipe]');
     if (useBtn) {
       const idx = Number(useBtn.dataset.useRecipe);
@@ -2542,6 +2604,7 @@
         <span>${b.date}・${escapeHtml(b.bean || '（豆未記入）')}${b.draft ? '<span class="draft-badge">下書き</span>' : ''}</span>
         <span class="brew-method-badge">${b.methodLabel || METHOD_LABELS[b.method] || ''}</span>
       `;
+      row.dataset.brewId = b.id;
       row.addEventListener('click', () => openDetailModal(b.id));
       recentBrewsEl.appendChild(row);
     });
@@ -2600,6 +2663,7 @@
         <td>${typeof b.yield === 'number' ? b.yield.toFixed(1) + '%' : '—'}</td>
         <td class="score-pill">${typeof b.overall === 'number' ? b.overall + '/9' : '—'}</td>
       `;
+      tr.dataset.brewId = b.id;
       tr.addEventListener('click', () => openDetailModal(b.id));
       historyBody.appendChild(tr);
     });
@@ -3336,6 +3400,188 @@
     overlays.forEach((el) => obs.observe(el, { attributes: true, attributeFilter: ['hidden'] }));
     update();
   })();
+
+  // ---------- 右クリック／長押しメニュー ----------
+  // PC: 右クリック / スマホ: 長押し（約0.5秒）。入力欄・テキストエリアはブラウザ標準メニューを残す
+  const ctxMenu = document.createElement('div');
+  ctxMenu.id = 'ctx-menu';
+  ctxMenu.className = 'ctx-menu';
+  ctxMenu.setAttribute('role', 'menu');
+  ctxMenu.tabIndex = -1;
+  ctxMenu.hidden = true;
+  document.body.appendChild(ctxMenu);
+  let suppressClickUntil = 0;
+
+  function closeCtxMenu() { ctxMenu.hidden = true; ctxMenu.innerHTML = ''; suppressClickUntil = 0; }
+  function placeCtxMenu(x, y) {
+    ctxMenu.style.left = '0px'; ctxMenu.style.top = '0px';
+    const r = ctxMenu.getBoundingClientRect();
+    ctxMenu.style.left = Math.max(8, Math.min(x, window.innerWidth - r.width - 8)) + 'px';
+    ctxMenu.style.top = Math.max(8, Math.min(y, window.innerHeight - r.height - 8)) + 'px';
+  }
+  // items: { label, onClick, danger, checked, disabled, keepOpen, submenu(): items } | { sep: true }
+  function renderCtxItems(items, x, y, parentItems) {
+    ctxMenu.innerHTML = '';
+    const list = parentItems ? [{ label: '戻る', back: true }, { sep: true }, ...items] : items;
+    list.forEach((it) => {
+      if (it.sep) { const d = document.createElement('div'); d.className = 'ctx-sep'; ctxMenu.appendChild(d); return; }
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'ctx-item' + (it.danger ? ' danger' : '');
+      b.setAttribute('role', 'menuitem');
+      b.disabled = !!it.disabled;
+      b.innerHTML = `<span class="ctx-mark">${it.back ? '‹' : (it.checked ? '✓' : '')}</span><span class="ctx-label"></span>${it.submenu ? '<span class="ctx-arrow">›</span>' : ''}`;
+      b.querySelector('.ctx-label').textContent = it.label;
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (it.back) { renderCtxItems(parentItems, x, y); placeCtxMenu(x, y); return; }
+        if (it.submenu) { renderCtxItems(it.submenu(), x, y, items); placeCtxMenu(x, y); return; }
+        if (it.keepOpen) { it.onClick(); renderCtxItems(items, x, y, parentItems); placeCtxMenu(x, y); return; }
+        closeCtxMenu();
+        it.onClick && it.onClick();
+      });
+      ctxMenu.appendChild(b);
+    });
+  }
+  function showCtxMenu(items, x, y) {
+    if (!items.length) return;
+    suppressClickUntil = Date.now() + 500; // 長押し直後に発生するclickでカードが開かないようにする
+    renderCtxItems(items, x, y);
+    ctxMenu.hidden = false;
+    placeCtxMenu(x, y);
+    ctxMenu.focus({ preventScroll: true });
+  }
+
+  // ---- 項目の組み立て ----
+  function beanMenuItems(beanId) {
+    const bean = beans.find(b => b.id === beanId);
+    if (!bean) return null;
+    const step = (d) => ({
+      label: (d > 0 ? '＋' : '−') + Math.abs(d) + 'g',
+      keepOpen: true,
+      get disabled() { const b = beans.find(x => x.id === beanId); return !b || (d < 0 && beanRemainingGrams(b) <= 0); },
+      onClick: () => stepBeanStock(beanId, d),
+    });
+    const items = [
+      {
+        label: '残量を調整',
+        submenu: () => [
+          step(-50), step(-10), step(10), step(50),
+          { sep: true },
+          { label: '数値を入力', onClick: () => startStockEdit(beanId) },
+          { label: '使い切りにする（0g）', onClick: () => { const b = beans.find(x => x.id === beanId); if (b) setBeanRemaining(b, 0); } },
+          { label: '購入量に戻す', onClick: () => { const b = beans.find(x => x.id === beanId); if (b) setBeanRemaining(b, b.purchaseWeight || 0); } },
+        ],
+      },
+      { label: 'この豆で記録する', onClick: () => { beanInput.value = bean.name; setView('log-form'); showToast(`「${bean.name}」を記録フォームにセットしました`); } },
+      { sep: true },
+    ];
+    const country = beanCountry(bean);
+    if (bean.roast) items.push({ label: `焙煎度「${bean.roast}」だけ表示`, onClick: () => setBeanFilter({ roast: bean.roast }) });
+    if (country) items.push({ label: `産地「${country}」だけ表示`, onClick: () => setBeanFilter({ country }) });
+    if (bean.process) items.push({ label: `精製方法「${bean.process}」だけ表示`, onClick: () => setBeanFilter({ process: bean.process }) });
+    if (beanFilterActive()) items.push({ label: '絞り込みを解除', onClick: () => setBeanFilter() });
+    items.push({ sep: true });
+    items.push({ label: '削除', danger: true, onClick: () => deleteBean(beanId) });
+    return items;
+  }
+  function recipeMenuItems(idx) {
+    if (!recipes[idx]) return null;
+    return [
+      { label: 'このレシピで記録する', onClick: () => useRecipeAt(idx) },
+      { label: '編集', onClick: () => enterRecipeEditMode(idx) },
+      { sep: true },
+      { label: '削除', danger: true, onClick: () => deleteRecipeAt(idx) },
+    ];
+  }
+  function brewMenuItems(id) {
+    const b = findBrew(id);
+    if (!b) return null;
+    return [
+      { label: '詳細を開く', onClick: () => openDetailModal(id) },
+      { label: 'このレシピで再現', onClick: () => { applyBrewToForm(b); setView('log-form'); showToast('レシピをフォームに反映しました'); } },
+      { sep: true },
+      { label: '削除', danger: true, onClick: () => deleteBrew(id) },
+    ];
+  }
+  function blankMenuItems() {
+    if (document.querySelector('.modal-overlay:not([hidden])')) {
+      return [{ label: '閉じる', onClick: () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) }];
+    }
+    const items = [{ label: '新しい記録', onClick: () => setView('log-form') }];
+    if (document.getElementById('view-beans').classList.contains('active')) {
+      items.push({ label: '豆を追加', onClick: () => openBeanModal() });
+      items.push({ label: '豆を検索', onClick: () => beanSearchEl.focus() });
+    }
+    if (syncCfg()) items.push({ label: '今すぐ同期', onClick: () => syncNow(true) });
+    items.push({ sep: true });
+    items.push({ label: '設定', onClick: () => setView('settings') });
+    return items;
+  }
+  // 右クリック／長押しした要素に応じた項目。null のときはブラウザ標準メニューを許可する
+  function menuItemsFor(target) {
+    if (!target || !target.closest) return null;
+    if (target.closest('input, textarea, select, [contenteditable="true"]')) return null;
+    if (document.querySelector('.modal-overlay:not([hidden])')) return blankMenuItems();
+    const bean = target.closest('.bean-card[data-bean-id]');
+    if (bean) return beanMenuItems(bean.dataset.beanId) || blankMenuItems();
+    const recipe = target.closest('.recipe-card[data-recipe-index]');
+    if (recipe) return recipeMenuItems(Number(recipe.dataset.recipeIndex)) || blankMenuItems();
+    const brew = target.closest('[data-brew-id]');
+    if (brew) return brewMenuItems(brew.dataset.brewId) || blankMenuItems();
+    return blankMenuItems();
+  }
+
+  // ---- 起動条件 ----
+  document.addEventListener('contextmenu', (e) => {
+    if (ctxMenu.contains(e.target)) { e.preventDefault(); return; }
+    const items = menuItemsFor(e.target);
+    if (items === null) { closeCtxMenu(); return; }
+    e.preventDefault();
+    showCtxMenu(items, e.clientX, e.clientY);
+  });
+  (function initLongPress() {
+    let timer = null, sx = 0, sy = 0;
+    const cancel = () => { clearTimeout(timer); timer = null; };
+    document.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return;
+      if (ctxMenu.contains(e.target)) return;
+      closeCtxMenu();
+      cancel();
+      const target = e.target; sx = e.clientX; sy = e.clientY;
+      timer = setTimeout(() => {
+        timer = null;
+        const items = menuItemsFor(target);
+        if (items === null) return;
+        if (navigator.vibrate) { try { navigator.vibrate(15); } catch {} }
+        showCtxMenu(items, sx, sy);
+      }, 500);
+    });
+    document.addEventListener('pointermove', (e) => { if (timer && Math.hypot(e.clientX - sx, e.clientY - sy) > 10) cancel(); });
+    ['pointerup', 'pointercancel'].forEach((ev) => document.addEventListener(ev, cancel));
+    window.addEventListener('scroll', cancel, true);
+  })();
+  // メニューが開いた直後のclick（長押しの指を離したとき）を無効化
+  document.addEventListener('click', (e) => {
+    if (Date.now() < suppressClickUntil && !ctxMenu.contains(e.target)) { e.stopPropagation(); e.preventDefault(); }
+  }, true);
+  // ---- 閉じる条件 / キーボード操作 ----
+  document.addEventListener('pointerdown', (e) => { if (e.pointerType === 'mouse' && !ctxMenu.hidden && !ctxMenu.contains(e.target)) closeCtxMenu(); }, true);
+  window.addEventListener('blur', closeCtxMenu);
+  window.addEventListener('resize', closeCtxMenu);
+  window.addEventListener('wheel', (e) => { if (!ctxMenu.hidden && !ctxMenu.contains(e.target)) closeCtxMenu(); }, { passive: true });
+  document.addEventListener('keydown', (e) => {
+    if (ctxMenu.hidden) return;
+    if (e.key === 'Escape') { e.stopImmediatePropagation(); closeCtxMenu(); return; }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const btns = Array.from(ctxMenu.querySelectorAll('.ctx-item:not(:disabled)'));
+      if (!btns.length) return;
+      const i = btns.indexOf(document.activeElement);
+      const next = e.key === 'ArrowDown' ? (i + 1) % btns.length : (i - 1 + btns.length) % btns.length;
+      btns[i === -1 && e.key === 'ArrowUp' ? btns.length - 1 : next].focus();
+    }
+  }, true);
 
   // ---------- Save brew records (記録する / 下書き保存) ----------
   const brewDatetimeInput = document.getElementById('brew-datetime');
