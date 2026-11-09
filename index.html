@@ -123,6 +123,17 @@
     min-width: 0; /* let flex-basis:0% actually shrink below content min-size */
     padding: 24px 24px 96px;
   }
+  .ratio-link-hint { font-size: 12px; color: var(--text-muted); margin: 8px 0 0; }
+  .mode-opts { display: flex; flex-direction: column; gap: 6px; }
+  .mode-opt {
+    display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px;
+    border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); cursor: pointer;
+  }
+  .mode-opt:hover { border-color: var(--brand); }
+  .mode-opt:has(input:checked) { border-color: var(--brand); background: var(--brand-tint); }
+  .mode-opt input { margin-top: 3px; accent-color: var(--brand); }
+  .mode-opt b { display: block; font-size: 13px; font-weight: 600; color: var(--text-primary); }
+  .mode-opt small { display: block; font-size: 11px; color: var(--text-secondary); margin-top: 1px; }
   .view { display: none; }
   /* レシピの作成・編集中は、レシピに含まれない項目（豆・抽出日時）を隠す */
   #view-log-form.recipe-mode [data-recipe-hide] { display: none; }
@@ -1163,13 +1174,12 @@
             <div class="field-grid">
               <div class="field"><label>粉量 (g)</label><input type="number" id="dose" value="15" step="0.1" /></div>
               <div class="field"><label>湯量 (cc)</label><input type="number" id="beverage-volume" value="240" step="1" /></div>
+              <div class="field"><label>レシオ (粉 1 : 湯)</label><input type="number" id="ratio-input" step="0.1" min="0" inputmode="decimal" placeholder="例: 16" /></div>
               <div class="field"><label>湯温 (℃)</label><input type="number" id="temp-input" value="92" /></div>
               <div class="field"><label>挽き目</label><input type="text" id="grind-input" placeholder="例: Comandante 22クリック" /></div>
             </div>
 
-            <div class="yield-result" id="quick-ratio-result" style="margin-top:12px;">
-              <div>レシオ（粉:湯）: <b id="ratio-output-quick">--</b></div>
-            </div>
+            <p class="ratio-link-hint">粉量・湯量・レシオのうち、直近に入力した2つから残りの1つが自動で計算されます（例: 湯量とレシオを入れると粉量が出ます）</p>
 
             <div class="method-group active" data-method-group="drip">
               <div class="field-grid" style="margin-top:12px;">
@@ -1562,15 +1572,14 @@
           <label>レシピ名</label>
           <input type="text" id="recipe-name-input" placeholder="例: 王道ハンドドリップ" />
         </div>
-        <div class="toggle-row" style="border-bottom:none; padding: 10px 0 0;">
-          <div class="toggle-row-text">
-            <div class="toggle-label">レシオのみで保存</div>
-            <div class="toggle-desc" id="recipe-ratio-only-hint">湯量・粉量を固定せず、比率だけを保存します</div>
+        <div class="field">
+          <label>保存する項目</label>
+          <div class="mode-opts" id="recipe-save-mode-opts">
+            <label class="mode-opt"><input type="radio" name="recipe-save-mode" value="dose-water" checked /><span><b>粉量 ＋ 湯量</b><small>どちらも固定して保存（レシオは自動計算）</small></span></label>
+            <label class="mode-opt"><input type="radio" name="recipe-save-mode" value="water-ratio" /><span><b>湯量 ＋ レシオ</b><small>湯量とレシオを保存（粉量は自動計算）</small></span></label>
+            <label class="mode-opt"><input type="radio" name="recipe-save-mode" value="dose-ratio" /><span><b>粉量 ＋ レシオ</b><small>粉量とレシオを保存（湯量は自動計算）</small></span></label>
+            <label class="mode-opt"><input type="radio" name="recipe-save-mode" value="ratio" /><span><b>レシオのみ</b><small>比率だけを保存（記録時に粉量を入れると湯量が出ます）</small></span></label>
           </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="recipe-ratio-only-checkbox" />
-            <span class="track"></span><span class="thumb"></span>
-          </label>
         </div>
       </div>
       <div class="modal-foot">
@@ -1736,7 +1745,6 @@
   const tdsInput = document.getElementById('tds');
   const yieldOutput = document.getElementById('yield-output');
   const ratioOutput = document.getElementById('ratio-output');
-  const ratioOutputQuick = document.getElementById('ratio-output-quick');
   function recalcYield() {
     const dose = parseFloat(doseInput.value);
     const beverage = parseFloat(beverageInput.value);
@@ -1744,27 +1752,41 @@
     // Ratio only needs dose+water, so it's shown regardless of whether TDS is filled in.
     const ratioText = (dose > 0 && beverage > 0) ? ('1 : ' + (beverage / dose).toFixed(1)) : '--';
     ratioOutput.textContent = ratioText;
-    ratioOutputQuick.textContent = ratioText;
     if (dose > 0 && beverage > 0 && tds >= 0) {
       yieldOutput.textContent = ((tds * beverage) / dose).toFixed(2);
     } else {
       yieldOutput.textContent = '--';
     }
   }
-  [doseInput, beverageInput, tdsInput].forEach(el => el.addEventListener('input', recalcYield));
-  beverageInput.addEventListener('input', () => updatePourHints());
+  tdsInput.addEventListener('input', recalcYield);
 
-  // ---------- Ratio-locked recipes: while a ratio-only recipe is active, 湯量
-  // follows 粉量 automatically (湯量 = 粉量 × レシオ). Editing 湯量 directly
-  // breaks the lock, since the user is taking manual control at that point.
-  let activeRecipeRatio = null;
-  doseInput.addEventListener('input', () => {
-    if (!activeRecipeRatio) return;
-    beverageInput.value = Math.round((parseFloat(doseInput.value) || 0) * activeRecipeRatio);
+  // ---------- 粉量・湯量・レシオの連動 ----------
+  // 3つのうち「直近に入力した2つ」から、残りの1つを自動計算する。
+  //   例) 湯量とレシオを入力 → 粉量が出る / 粉量と湯量を入力 → レシオが出る / 粉量とレシオを入力 → 湯量が出る
+  const ratioInput = document.getElementById('ratio-input');
+  let linkOrder = ['dose', 'water']; // 直近に入力した2項目（古い順）。ここに無い1項目が自動計算される
+  const round1v = (n) => Math.round(n * 10) / 10;
+  function setLinkOrder(order) { linkOrder = order.slice(-2); }
+  function refreshLinked() {
+    const third = ['dose', 'water', 'ratio'].find(f => !linkOrder.includes(f));
+    const dose = parseFloat(doseInput.value), water = parseFloat(beverageInput.value), ratio = parseFloat(ratioInput.value);
+    if (third === 'ratio' && dose > 0 && water > 0) ratioInput.value = round1v(water / dose).toFixed(1);
+    else if (third === 'dose' && water > 0 && ratio > 0) doseInput.value = round1v(water / ratio);
+    else if (third === 'water' && dose > 0 && ratio > 0) beverageInput.value = Math.round(dose * ratio);
     recalcYield();
     updatePourHints();
-  });
-  beverageInput.addEventListener('input', () => { activeRecipeRatio = null; });
+  }
+  function onLinkedInput(field) {
+    linkOrder = linkOrder.filter(f => f !== field).concat(field).slice(-2);
+    refreshLinked();
+  }
+  doseInput.addEventListener('input', () => onLinkedInput('dose'));
+  beverageInput.addEventListener('input', () => onLinkedInput('water'));
+  ratioInput.addEventListener('input', () => onLinkedInput('ratio'));
+  (function initRatioField() {
+    const d = parseFloat(doseInput.value), w = parseFloat(beverageInput.value);
+    if (d > 0 && w > 0) ratioInput.value = round1v(w / d).toFixed(1);
+  })();
 
   // ---------- Hand-drip pour-by-pour recipe ----------
   const pourCountInput = document.getElementById('pour-count');
@@ -1933,18 +1955,27 @@
 
   function applyRecipe(recipe) {
     document.querySelector(`#method-tabs [data-method="${recipe.method}"]`)?.click();
-    if (recipe.ratio) {
-      // Ratio-only recipe: keep whatever 粉量 is already in the form (or a
-      // sane default) and derive 湯量 from it; 粉量 then keeps driving 湯量
-      // live until the user edits 湯量 directly.
-      activeRecipeRatio = recipe.ratio;
+    // 保存された組み合わせに応じて、入っていない1項目を自動計算する
+    const mode = recipeModeOf(recipe);
+    if (mode === 'ratio') {
+      // レシオのみ: 粉量はフォームの現在値（なければ15g）を使い、湯量をレシオから計算する
       if (!(parseFloat(doseInput.value) > 0)) doseInput.value = 15;
-      beverageInput.value = Math.round((parseFloat(doseInput.value) || 0) * recipe.ratio);
+      ratioInput.value = recipe.ratio;
+      setLinkOrder(['ratio', 'dose']);
+    } else if (mode === 'water-ratio') {
+      beverageInput.value = recipe.beverageVolume;
+      ratioInput.value = recipe.ratio;
+      setLinkOrder(['water', 'ratio']);
+    } else if (mode === 'dose-ratio') {
+      doseInput.value = recipe.dose;
+      ratioInput.value = recipe.ratio;
+      setLinkOrder(['dose', 'ratio']);
     } else {
-      activeRecipeRatio = null;
       doseInput.value = recipe.dose;
       beverageInput.value = recipe.beverageVolume;
+      setLinkOrder(['dose', 'water']);
     }
+    refreshLinked();
     tempInput.value = recipe.temp;
     grindInput.value = recipe.grind;
     Object.entries(recipe.methodFields || {}).forEach(([key, val]) => {
@@ -2007,7 +2038,9 @@
     if (recipeCreateMode) { openRecipeModal(); return; } // 新規作成中は、名前を入力するダイアログへ
     if (editingRecipeIndex == null || !recipes[editingRecipeIndex]) return;
     const name = recipes[editingRecipeIndex].name;
-    const recipe = finalizeRecipe(!!recipes[editingRecipeIndex].ratio);
+    const mode = recipeModeOf(recipes[editingRecipeIndex]); // 編集では保存済みの組み合わせを保つ
+    const recipe = finalizeRecipe(mode);
+    if (!recipe) { showToast(ratioNeededMessage(mode)); return; }
     recipe.name = name;
     recipes[editingRecipeIndex] = recipe;
     saveRecipesToStorage(recipes);
@@ -2036,35 +2069,59 @@
     renderRecipeGrid();
   });
 
-  // A ratio-only recipe drops the fixed 粉量/湯量 in favor of just their ratio
-  // (plus pours converted to % so the schedule scales with any dose) — see
-  // applyRecipe's ratio-lock handling above for how it's reproduced later.
-  function finalizeRecipe(ratioOnly) {
+  // レシピに保存する値の組み合わせ（粉量・湯量・レシオのうち2つ、またはレシオのみ）
+  //   dose-water: 粉量＋湯量 / water-ratio: 湯量＋レシオ / dose-ratio: 粉量＋レシオ / ratio: レシオのみ
+  const RECIPE_MODE_LABELS = { 'dose-water': '粉量＋湯量', 'water-ratio': '湯量＋レシオ', 'dose-ratio': '粉量＋レシオ', 'ratio': 'レシオのみ' };
+  function recipeModeOf(recipe) {
+    if (!recipe.ratio) return 'dose-water';
+    const hasDose = parseFloat(recipe.dose) > 0, hasVol = parseFloat(recipe.beverageVolume) > 0;
+    if (hasDose && hasVol) return 'dose-water';
+    if (hasVol) return 'water-ratio';
+    if (hasDose) return 'dose-ratio';
+    return 'ratio';
+  }
+  // フォームの現在値から、選んだ組み合わせのレシピを作る。足りない値があるときは null を返す
+  function finalizeRecipe(mode) {
     const recipe = captureRecipe();
-    if (ratioOnly) {
-      const dose = parseFloat(doseInput.value);
-      const beverage = parseFloat(beverageInput.value);
-      if (dose > 0 && beverage > 0) {
-        recipe.ratio = Math.round((beverage / dose) * 100) / 100;
-        if (recipe.pours && recipe.pours.length && pourUnit !== 'percent') {
-          recipe.pours = recipe.pours.map(p => ({ ...p, amount: beverage > 0 ? Math.round((p.amount / beverage) * 1000) / 10 : 0 }));
-        }
-        recipe.pourUnit = 'percent';
-      }
+    const dose = parseFloat(doseInput.value), water = parseFloat(beverageInput.value), typedRatio = parseFloat(ratioInput.value);
+    if (mode === 'dose-water') { recipe.ratio = null; return recipe; }
+    // レシオを直接入力していればその値、そうでなければ粉量と湯量から計算
+    const ratio = (linkOrder.includes('ratio') && typedRatio > 0) ? typedRatio : ((dose > 0 && water > 0) ? Math.round((water / dose) * 100) / 100 : null);
+    if (!ratio) return null;
+    if (mode === 'water-ratio' && !(water > 0)) return null;
+    if (mode === 'dose-ratio' && !(dose > 0)) return null;
+    recipe.ratio = ratio;
+    if (mode === 'water-ratio') recipe.dose = '';
+    if (mode === 'dose-ratio') recipe.beverageVolume = '';
+    if (mode === 'ratio') {
       recipe.dose = '';
       recipe.beverageVolume = '';
-    } else {
-      recipe.ratio = null;
+      // 粉量が変わっても注湯の配分が保てるよう、注湯量は割合(%)で保存する
+      if (recipe.pours && recipe.pours.length && pourUnit !== 'percent' && water > 0) {
+        recipe.pours = recipe.pours.map(p => ({ ...p, amount: Math.round((p.amount / water) * 1000) / 10 }));
+      }
+      if (recipe.pours) recipe.pourUnit = 'percent';
     }
     return recipe;
+  }
+  // 現在の入力状態（直近に入力した2項目）から、保存する組み合わせの初期値を決める
+  function modeFromLinkOrder() {
+    const key = [...linkOrder].sort().join('+');
+    return { 'dose+water': 'dose-water', 'ratio+water': 'water-ratio', 'dose+ratio': 'dose-ratio' }[key] || 'dose-water';
+  }
+  function ratioNeededMessage(mode) {
+    if (mode === 'water-ratio') return '湯量とレシオを入力してから保存してください';
+    if (mode === 'dose-ratio') return '粉量とレシオを入力してから保存してください';
+    return '粉量と湯量、またはレシオを入力してから保存してください';
   }
 
   const recipeModalOverlay = document.getElementById('recipe-modal-overlay');
   const recipeNameInput = document.getElementById('recipe-name-input');
-  const recipeRatioOnlyCheckbox = document.getElementById('recipe-ratio-only-checkbox');
   function openRecipeModal() {
     recipeNameInput.value = '';
-    recipeRatioOnlyCheckbox.checked = false;
+    // 直近に入力した組み合わせを初期選択にする（湯量とレシオを入れたなら「湯量＋レシオ」）
+    const mode = modeFromLinkOrder();
+    document.querySelectorAll('input[name="recipe-save-mode"]').forEach(r => { r.checked = r.value === mode; });
     recipeModalOverlay.hidden = false;
     recipeNameInput.focus();
   }
@@ -2079,7 +2136,9 @@
   document.getElementById('recipe-modal-save').addEventListener('click', () => {
     const name = recipeNameInput.value.trim();
     if (!name) { recipeNameInput.focus(); return; }
-    const recipe = finalizeRecipe(recipeRatioOnlyCheckbox.checked);
+    const mode = (document.querySelector('input[name="recipe-save-mode"]:checked') || {}).value || 'dose-water';
+    const recipe = finalizeRecipe(mode);
+    if (!recipe) { showToast(ratioNeededMessage(mode)); return; }
     recipe.name = name;
     recipes.push(recipe);
     saveRecipesToStorage(recipes);
@@ -2097,13 +2156,18 @@
   const recipeGridEmptyEl = document.getElementById('recipe-grid-empty');
 
   function recipeRatioLabel(recipe) {
-    if (recipe.ratio) return '1 : ' + recipe.ratio.toFixed(1);
+    if (recipe.ratio) return '1 : ' + Number(recipe.ratio).toFixed(1);
     const dose = parseFloat(recipe.dose);
     const beverage = parseFloat(recipe.beverageVolume);
     return (dose > 0 && beverage > 0) ? ('1 : ' + (beverage / dose).toFixed(1)) : '—';
   }
 
   function buildRecipeCard(recipe, index) {
+    const mode = recipeModeOf(recipe);
+    const doseText = (mode === 'dose-water' || mode === 'dose-ratio') ? (recipe.dose ? recipe.dose + ' g' : '—')
+      : (mode === 'water-ratio' ? '湯量とレシオから自動計算' : '記録時に入力');
+    const waterText = (mode === 'dose-water' || mode === 'water-ratio') ? (recipe.beverageVolume ? recipe.beverageVolume + ' cc' : '—')
+      : '粉量から自動計算';
     const card = document.createElement('div');
     card.className = 'card recipe-card';
     card.dataset.recipeIndex = String(index);
@@ -2111,12 +2175,12 @@
       <div class="recipe-card-head">
         <div>
           <div class="recipe-name">${escapeHtml(recipe.name)}</div>
-          <div class="recipe-sub">${escapeHtml(methodLabel(recipe.method))}${recipe.ratio ? '・レシオ指定' : ''}</div>
+          <div class="recipe-sub">${escapeHtml(methodLabel(recipe.method))}${mode !== 'dose-water' ? '・' + RECIPE_MODE_LABELS[mode] : ''}</div>
         </div>
         <button class="icon-btn" type="button" data-delete-recipe="${index}" aria-label="このレシピを削除" title="削除"><span class="icon" data-icon="trash"></span></button>
       </div>
-      <div class="recipe-meta-row"><span>粉量</span><span>${recipe.ratio ? '記録時に入力' : (recipe.dose ? recipe.dose + ' g' : '—')}</span></div>
-      <div class="recipe-meta-row"><span>湯量</span><span>${recipe.ratio ? '粉量から自動計算' : (recipe.beverageVolume ? recipe.beverageVolume + ' cc' : '—')}</span></div>
+      <div class="recipe-meta-row"><span>粉量</span><span>${doseText}</span></div>
+      <div class="recipe-meta-row"><span>湯量</span><span>${waterText}</span></div>
       <div class="recipe-meta-row"><span>レシオ</span><span>${recipeRatioLabel(recipe)}</span></div>
       <div class="recipe-meta-row"><span>湯温</span><span>${recipe.temp || '—'} ℃</span></div>
       ${recipe.grind ? `<div class="recipe-meta-row"><span>挽き目</span><span>${escapeHtml(recipe.grind)}</span></div>` : ''}
@@ -3831,7 +3895,7 @@
   document.getElementById('detail-delete-btn').addEventListener('click', () => deleteBrew(detailBrewId));
 
   function applyBrewToForm(b) {
-    activeRecipeRatio = null; // reproducing a past brew uses its fixed absolute amounts
+    setLinkOrder(['dose', 'water']); // reproducing a past brew uses its fixed absolute amounts
     if (b.method && METHOD_LABELS[b.method]) {
       const tab = document.querySelector(`#method-tabs [data-method="${b.method}"]`);
       if (tab) tab.click();
@@ -3852,7 +3916,7 @@
       buildPourRows(b.pours.length, b.pours);
     }
     recalcTotalBrewTime();
-    recalcYield();
+    refreshLinked();
   }
 
   document.getElementById('detail-reproduce-btn').addEventListener('click', () => {
