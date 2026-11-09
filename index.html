@@ -131,6 +131,7 @@
   #view-log-form[data-rmode="ratio"] .ratio-link-hint,
   #view-log-form[data-rmode="water-ratio"] .f-dose,
   #view-log-form[data-rmode="dose-ratio"] .f-water { display: none; }
+  #view-log-form.recipe-mode .f-ratio[hidden] { display: flex; } /* レシピ作成・編集中は、レシオ欄を非表示にしていても出す */
   .recipe-mode-pick { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); font-weight: 400; }
   .recipe-mode-pick select {
     font-family: inherit; font-size: 13px; padding: 6px 10px; border-radius: 4px;
@@ -798,6 +799,17 @@
     color: var(--brand);
   }
 
+  .update-banner {
+    position: fixed; left: 50%; transform: translateX(-50%); top: 12px; z-index: 140;
+    display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+    background: var(--brand-tint); color: var(--brand); border: 1px solid var(--brand);
+    border-radius: 8px; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,0.45);
+  }
+  .update-banner[hidden] { display: none; }
+  .update-banner button {
+    background: var(--brand); color: #1a1408; border: none; border-radius: 4px;
+    padding: 6px 12px; font-size: 13px; font-weight: 700; cursor: pointer;
+  }
   /* ---------- 確認ポップアップ（操作した場所のすぐ近くに出る） ---------- */
   .pop-backdrop { position: fixed; inset: 0; z-index: 130; background: transparent; }
   .pop-box {
@@ -1688,6 +1700,11 @@
     </div>
   </div>
 
+  <div class="update-banner" id="update-banner" hidden>
+    <span>新しい版があります。更新すると最新の機能・修正が使えます。</span>
+    <button type="button" id="update-banner-btn">更新する</button>
+  </div>
+
   <!-- Toast -->
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </div>
@@ -1698,7 +1715,12 @@
   var RECIPES_TS_KEY = 'brewLog.recipesTs';
   var syncReady = false, syncTimer = null;
   var syncDeferred = false; // レシピ作成・編集中などの「作業中」に同期を見送ったか（作業が終わったら再開する）
-  function resumeDeferredSync() { if (syncDeferred && typeof syncBusy === 'function' && !syncBusy()) { syncDeferred = false; scheduleSync(); } }
+  var localReloadPending = false; // 同じ端末の別タブがデータを書き換えたが、作業中なので画面への反映を待っている
+  function resumeDeferredSync() {
+    if (typeof syncBusy !== 'function' || syncBusy()) return;
+    if (localReloadPending && typeof applyDataInPlace === 'function') { localReloadPending = false; applyDataInPlace(); }
+    if (syncDeferred) { syncDeferred = false; scheduleSync(); }
+  }
   function loadTombs() { try { return JSON.parse(localStorage.getItem(TOMB_KEY) || '{}'); } catch (e) { return {}; } }
   function stableNoTs(o) { var c = Object.assign({}, o); delete c._ts; return JSON.stringify(c); }
   // Saves a list of records that have ids; stamps update times and records deletions so other devices can follow.
@@ -1953,14 +1975,25 @@
   // A "recipe" captures how to brew (method + parameters), not the bean or the tasting
   // result — those are specific to one brew, while a recipe is meant to be reused.
   const RECIPES_KEY = 'coffeeAppRecipes';
+  // レシピは1件ごとに id と更新時刻(_ts)を持ち、同期も1件ずつ統合する（古い端末が新しい変更を丸ごと上書きしないように）。
+  // 旧形式（idなし）のレシピには、名前由来のid（r1:名前）と、旧リスト全体の更新時刻を引き継ぐ。
   function loadRecipes() {
-    try { return JSON.parse(localStorage.getItem(RECIPES_KEY) || '[]'); } catch { return []; }
+    let list = [];
+    try { list = JSON.parse(localStorage.getItem(RECIPES_KEY) || '[]'); } catch { list = []; }
+    if (!Array.isArray(list)) list = [];
+    const legacyTs = Number(localStorage.getItem(RECIPES_TS_KEY) || 0);
+    const seen = new Set();
+    let migrated = false;
+    list.forEach(r => {
+      if (!r.id) { r.id = 'r1:' + r.name; r._ts = legacyTs; migrated = true; }
+      while (seen.has(r.id)) { r.id += '-2'; migrated = true; }
+      seen.add(r.id);
+    });
+    if (migrated) localStorage.setItem(RECIPES_KEY, JSON.stringify(list));
+    return list;
   }
-  function saveRecipesToStorage(list) {
-    localStorage.setItem(RECIPES_KEY, JSON.stringify(list));
-    localStorage.setItem(RECIPES_TS_KEY, String(Date.now()));
-    scheduleSync();
-  }
+  function newRecipeId() { return 'r2' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+  function saveRecipesToStorage(list) { trackSave('recipes', RECIPES_KEY, list); }
   let recipes = loadRecipes();
 
   const recipeSelect = document.getElementById('recipe-select');
@@ -2123,7 +2156,12 @@
     const recipe = finalizeRecipe(mode);
     if (!recipe) { showToast(ratioNeededMessage(mode)); return; }
     recipe.name = name;
-    recipes[editingRecipeIndex] = recipe;
+    // 保存の直前に最新の一覧を読み直し、id で対象を探す（古い画面の一覧で、新しい内容を上書きしないため）
+    const editId = recipes[editingRecipeIndex].id;
+    recipes = loadRecipes();
+    const at = recipes.findIndex(r => r.id === editId);
+    recipe.id = editId;
+    if (at >= 0) recipes[at] = recipe; else recipes.push(recipe);
     saveRecipesToStorage(recipes);
     renderRecipeSelect();
     renderRecipeGrid();
@@ -2138,16 +2176,10 @@
     applyRecipe(recipes[Number(recipeSelect.value)]);
   });
 
-  deleteRecipeBtn.addEventListener('click', async () => {
+  deleteRecipeBtn.addEventListener('click', () => {
     const idx = Number(recipeSelect.value);
     if (Number.isNaN(idx) || !recipes[idx]) return;
-    if (!(await askConfirm(`「${recipes[idx].name}」を削除しますか？`, '削除', true))) return;
-    if (!recipes[idx]) return;
-    if (editingRecipeIndex === idx) exitRecipeEditMode();
-    recipes.splice(idx, 1);
-    saveRecipesToStorage(recipes);
-    renderRecipeSelect();
-    renderRecipeGrid();
+    deleteRecipeAt(idx);
   });
 
   // レシピに保存する値の組み合わせ（粉量・湯量・レシオのうち2つ、またはレシオのみ）
@@ -2233,6 +2265,8 @@
     const recipe = finalizeRecipe(mode);
     if (!recipe) { showToast(ratioNeededMessage(mode)); return; }
     recipe.name = name;
+    recipe.id = newRecipeId();
+    recipes = loadRecipes(); // 保存の直前に最新の一覧を読み直す
     recipes.push(recipe);
     saveRecipesToStorage(recipes);
     exitRecipeEditMode();
@@ -2295,10 +2329,13 @@
 
   async function deleteRecipeAt(idx) {
     if (!recipes[idx]) return;
-    if (!(await askConfirm(`「${recipes[idx].name}」を削除しますか？`, '削除', true))) return;
-    if (!recipes[idx]) return;
+    const target = recipes[idx];
+    if (!(await askConfirm(`「${target.name}」を削除しますか？`, '削除', true))) return;
     if (editingRecipeIndex === idx) exitRecipeEditMode();
-    recipes.splice(idx, 1);
+    recipes = loadRecipes();
+    const at = recipes.findIndex(r => r.id === target.id);
+    if (at < 0) return;
+    recipes.splice(at, 1);
     saveRecipesToStorage(recipes);
     renderRecipeSelect();
     renderRecipeGrid();
@@ -2634,7 +2671,7 @@
       ['bean', 'bean-input'], ['datetime', 'brew-datetime'],
       ['dose', 'dose'], ['beverage', 'beverage-volume'], ['temp', 'temp-input'], ['grind', 'grind-input'],
       ['tds', 'tds'], ['gh', 'gh-input'], ['kh', 'kh-input'], ['mineral', 'mineral-input'],
-      ['evaluationMemo', 'evaluation-memo'], ['technique', 'technique-note'],
+      ['evaluationMemo', 'evaluation-memo'], ['technique', 'technique-note'], ['ratio', 'ratio-input'],
     ].map(([key, id]) => {
       const input = document.getElementById(id);
       const field = input?.closest('.field');
@@ -3591,6 +3628,23 @@
     });
   }
 
+  // ---------- 新しい版の検知 ----------
+  // 開きっぱなしの古い画面が、古いデータで新しいデータを上書きしてしまうのを防ぐため、
+  // 新しい版が公開されたら画面上に知らせる（sw.js の CACHE_NAME と同じ値にそろえること）
+  const APP_BUILD = 'brew-log-v27';
+  async function checkForNewVersion() {
+    try {
+      const res = await fetch('sw.js', { cache: 'no-store' });
+      if (!res.ok) return;
+      const m = (await res.text()).match(/CACHE_NAME\s*=\s*'([^']+)'/);
+      if (m && m[1] !== APP_BUILD) document.getElementById('update-banner').hidden = false;
+    } catch {}
+  }
+  document.getElementById('update-banner-btn').addEventListener('click', () => location.reload());
+  setTimeout(checkForNewVersion, 3000);
+  setInterval(checkForNewVersion, 10 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForNewVersion(); });
+
   // ---------- モーダル表示中は背景のスクロールを止める ----------
   (function initScrollLock() {
     const overlays = Array.from(document.querySelectorAll('.modal-overlay'));
@@ -3814,6 +3868,13 @@
     };
     const technique = isFieldHidden('technique') ? '' : techniqueInput.value.trim();
     if (technique) brew.technique = technique;
+    // レシオも記録する（粉量・湯量の欄を非表示にしていても、レシオだけは残せるように）
+    if (!isFieldHidden('ratio')) {
+      const typed = parseFloat(ratioInput.value);
+      const d = parseFloat(doseInput.value), w = parseFloat(beverageInput.value);
+      const ratio = (linkOrder.includes('ratio') && typed > 0) ? typed : ((d > 0 && w > 0) ? Math.round((w / d) * 100) / 100 : (typed > 0 ? typed : null));
+      if (ratio) brew.ratio = ratio;
+    }
     document.querySelectorAll(`[data-method-group="${method}"] [data-field]`).forEach(el => {
       const key = `detail:${method}:${el.dataset.field}`;
       if (el.value !== '' && !isFieldHidden(key)) brew.methodFields[el.dataset.field] = el.value;
@@ -3925,10 +3986,11 @@
     html += detailRow('豆', b.bean || '—');
     html += detailRow('抽出方法', b.methodLabel || METHOD_LABELS[b.method] || '—');
     html += detailRow('日時', (b.datetime || b.date).replace('T', ' '));
-    if (b.dose != null || b.waterVolume != null || b.temp != null || b.grind) {
+    if (b.dose != null || b.waterVolume != null || b.temp != null || b.grind || b.ratio) {
       html += '<p class="detail-section-title">レシピ</p>';
       html += detailRow('粉量', b.dose != null ? b.dose + ' g' : null, true);
       html += detailRow('湯量', b.waterVolume != null ? b.waterVolume + ' cc' : null, true);
+      html += detailRow('レシオ', b.ratio ? '1 : ' + Number(b.ratio).toFixed(1) : null, true);
       html += detailRow('湯温', b.temp != null ? b.temp + ' ℃' : null, true);
       html += detailRow('挽き目', b.grind || null);
     }
@@ -4009,6 +4071,10 @@
     if (b.temp != null) tempInput.value = b.temp;
     if (b.grind) grindInput.value = b.grind;
     techniqueInput.value = b.technique || '';
+    if (b.ratio && !(b.dose != null && b.waterVolume != null)) { // 粉量・湯量が記録されていない記録は、レシオから再現する
+      ratioInput.value = b.ratio;
+      setLinkOrder(['ratio', b.dose != null ? 'dose' : 'water']);
+    }
     Object.entries(b.methodFields || {}).forEach(([key, val]) => {
       const el = document.querySelector(`[data-method-group="${b.method}"] [data-field="${key}"]`);
       if (el && val != null) el.value = val;
@@ -4080,7 +4146,7 @@
   const blOwnerEl = document.getElementById('bl-sync-owner');
   const blRepoEl = document.getElementById('bl-sync-repo');
   const blTokenEl = document.getElementById('bl-sync-token');
-  const ID_LISTS = [['brews', BREWS_KEY], ['beans', BEANS_KEY], ['quickNotes', QUICK_NOTES_KEY]];
+  const ID_LISTS = [['brews', BREWS_KEY], ['beans', BEANS_KEY], ['quickNotes', QUICK_NOTES_KEY], ['recipes', RECIPES_KEY]];
   function syncCfg() {
     try { return JSON.parse(localStorage.getItem(BL_CFG_KEY) || localStorage.getItem('coffeeMemo.sync') || 'null'); } catch { return null; }
   }
@@ -4105,23 +4171,31 @@
   const readLocal = (key) => { try { const v = JSON.parse(localStorage.getItem(key)); return Array.isArray(v) ? v : []; } catch { return []; } };
 
   function canon(d, ignoreTs) {
-    const out = ignoreTs ? { recipes: d.recipes } : { recipes: d.recipes, recipesTs: d.recipesTs };
+    const out = {};
     ID_LISTS.forEach(([name]) => { out[name] = [...d[name]].sort((a, b) => (a.id < b.id ? -1 : 1)); });
+    // 旧版のアプリとの互換用: リスト全体の更新時刻（レシピの最新の更新時刻）も書き出しておく
+    if (!ignoreTs) out.recipesTs = d.recipes.reduce((m, r) => Math.max(m, r._ts || 0), 0);
     const dl = {};
     Object.keys(d.deleted).sort().forEach((k) => { dl[k] = d.deleted[k]; });
     out.deleted = dl;
     return JSON.stringify(out);
   }
   function localSnapshot() {
-    const d = { recipes: readLocal(RECIPES_KEY), recipesTs: Number(localStorage.getItem(RECIPES_TS_KEY) || 0), deleted: loadTombs() };
-    ID_LISTS.forEach(([name, key]) => { d[name] = readLocal(key).filter((x) => !isSeed(x)); });
+    const d = { deleted: loadTombs() };
+    ID_LISTS.forEach(([name, key]) => { d[name] = (name === 'recipes' ? loadRecipes() : readLocal(key)).filter((x) => !isSeed(x)); });
     return d;
   }
   function normRemote(r) {
-    const d = { recipes: Array.isArray(r.recipes) ? r.recipes : [], recipesTs: Number(r.recipesTs || 0), deleted: r.deleted || {} };
-    ID_LISTS.forEach(([name]) => { d[name] = (Array.isArray(r[name]) ? r[name] : []).filter((x) => x && x.id && !isSeed(x)); });
+    const d = { deleted: r.deleted || {} };
+    ID_LISTS.forEach(([name]) => {
+      let list = Array.isArray(r[name]) ? r[name] : [];
+      // 旧形式のレシピ（idなし）は、名前由来のidと、旧リスト全体の更新時刻を引き継ぐ
+      if (name === 'recipes') list = list.filter((x) => x && x.name !== undefined).map((x) => Object.assign({}, x, { id: x.id || ('r1:' + x.name), _ts: x._ts != null ? x._ts : Number(r.recipesTs || 0) }));
+      d[name] = list.filter((x) => x && x.id && !isSeed(x));
+    });
     return d;
   }
+  // 豆・記録・メモ・レシピのすべてを、1件ずつ（id と更新時刻 _ts で）統合する。新しい変更だけが勝つ
   function mergeAll(remote) {
     const loc = localSnapshot();
     const deleted = Object.assign({}, remote.deleted);
@@ -4133,27 +4207,18 @@
       remote[name].forEach((rx) => { const lx = map.get(rx.id); if (!lx || (rx._ts || 0) > (lx._ts || 0)) map.set(rx.id, rx); });
       m[name] = [...map.values()]
         .filter((x) => !(deleted[name + ':' + x.id] && deleted[name + ':' + x.id] >= (x._ts || 0)))
-        .sort((a, b) => (b._ts || 0) - (a._ts || 0));
+        // レシピは作成順（id順）、ほかは新しい順
+        .sort(name === 'recipes' ? (a, b) => (a.id < b.id ? -1 : 1) : (a, b) => (b._ts || 0) - (a._ts || 0));
     });
-    // レシピはIDを持たないため、リスト全体を新しい方で置き換える（どちらかが未同期なら名前で統合）
-    if (loc.recipesTs === 0 || remote.recipesTs === 0) {
-      const list = loc.recipes.slice();
-      remote.recipes.forEach((r) => { if (!list.some((x) => x.name === r.name)) list.push(r); });
-      m.recipes = list;
-      m.recipesTs = JSON.stringify(list) === JSON.stringify(remote.recipes) ? remote.recipesTs : Date.now();
-    } else if (remote.recipesTs > loc.recipesTs) { m.recipes = remote.recipes; m.recipesTs = remote.recipesTs; }
-    else { m.recipes = loc.recipes; m.recipesTs = loc.recipesTs; }
     return m;
   }
   function applyMerged(m) {
-    // 中身が変わったかどうかだけを見る（レシピの更新時刻だけが違う場合は「変更なし」）
+    // 中身が変わったかどうかだけを見る
     const changed = canon(localSnapshot(), true) !== canon(m, true);
     ID_LISTS.forEach(([name, key]) => {
       const seeds = readLocal(key).filter(isSeed);
       localStorage.setItem(key, JSON.stringify(m[name].concat(seeds)));
     });
-    localStorage.setItem(RECIPES_KEY, JSON.stringify(m.recipes));
-    localStorage.setItem(RECIPES_TS_KEY, String(m.recipesTs));
     localStorage.setItem(TOMB_KEY, JSON.stringify(m.deleted));
     return changed;
   }
@@ -4178,6 +4243,14 @@
     renderRecipeGrid();
     renderQuickNotes();
   }
+
+  // 同じ端末で別のタブ（や別ウィンドウ）が保存したときは、こちらの画面のデータも最新にする。
+  // そうしないと、こちらの古い一覧で保存し直して、別タブの変更を上書きしてしまう
+  window.addEventListener('storage', (e) => {
+    if (![BREWS_KEY, BEANS_KEY, RECIPES_KEY, QUICK_NOTES_KEY].includes(e.key)) return;
+    if (syncBusy()) { localReloadPending = true; return; }
+    applyDataInPlace();
+  });
 
   let syncing = false, syncQueued = false;
   async function syncNow(manual) {
