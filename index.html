@@ -124,6 +124,8 @@
     padding: 24px 24px 96px;
   }
   .view { display: none; }
+  /* レシピの作成・編集中は、レシピに含まれない項目（豆・抽出日時）を隠す */
+  #view-log-form.recipe-mode [data-recipe-hide] { display: none; }
   .view.active { display: block; }
 
   h1.page-title { font-family: var(--font-display); font-size: 21px; margin: 0 0 4px; }
@@ -948,6 +950,7 @@
     font-weight: 600;
   }
   .recipe-edit-banner .recipe-edit-actions { display: flex; gap: 8px; }
+  .recipe-edit-banner[hidden] { display: none; } /* display:flex が hidden 属性を打ち消すのを防ぐ */
 
   /* ---------- Bottom nav (mobile) ---------- */
   .bottom-nav {
@@ -1113,7 +1116,7 @@
         </div>
 
         <div class="card">
-          <div class="form-section">
+          <div class="form-section" data-recipe-hide>
             <h2>基本情報</h2>
             <div class="field-grid">
               <div class="field">
@@ -1705,10 +1708,12 @@
   // ---------- Navigation ----------
   const navLinks = document.querySelectorAll('.nav-link');
   const views = document.querySelectorAll('.view');
+  var recipeCreateMode = false; // 「＋ 新しいレシピを作成」で入った作成モード（setView より前に宣言）
   function setView(name) {
     views.forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
     navLinks.forEach(l => l.setAttribute('aria-current', l.dataset.view === name ? 'page' : 'false'));
     window.scrollTo(0, 0);
+    if (name !== 'log-form' && recipeCreateMode) exitRecipeEditMode();
   }
   navLinks.forEach(link => link.addEventListener('click', () => setView(link.dataset.view)));
 
@@ -1962,24 +1967,44 @@
   // in the log form itself (it already has every method-specific field), with a
   // banner tracking which saved recipe is being overwritten on save. ----------
   let editingRecipeIndex = null;
+  const recipeEditSaveBtn = document.getElementById('recipe-edit-save-btn');
   const recipeEditBanner = document.getElementById('recipe-edit-banner');
   const recipeEditBannerText = document.getElementById('recipe-edit-banner-text');
 
   function enterRecipeEditMode(index) {
     const recipe = recipes[index];
     if (!recipe) return;
+    recipeCreateMode = false;
     editingRecipeIndex = index;
     applyRecipe(recipe);
     recipeEditBannerText.textContent = `「${recipe.name}」を編集中`;
+    recipeEditSaveBtn.textContent = '変更を保存';
     recipeEditBanner.hidden = false;
+    updateRecipeModeUi();
+    setView('log-form');
+  }
+  // 「＋ 新しいレシピを作成」から入った場合: 豆などの入力は不要。設定を組んで「レシピとして保存」するだけ
+  function enterRecipeCreateMode() {
+    exitRecipeEditMode();
+    recipeCreateMode = true;
+    recipeEditBannerText.textContent = '新しいレシピを作成中（豆・抽出日時の入力は不要です）';
+    recipeEditSaveBtn.textContent = 'レシピとして保存';
+    recipeEditBanner.hidden = false;
+    updateRecipeModeUi();
     setView('log-form');
   }
   function exitRecipeEditMode() {
     editingRecipeIndex = null;
+    recipeCreateMode = false;
     recipeEditBanner.hidden = true;
+    updateRecipeModeUi();
+  }
+  function updateRecipeModeUi() {
+    document.getElementById('view-log-form').classList.toggle('recipe-mode', editingRecipeIndex != null || recipeCreateMode);
   }
   document.getElementById('recipe-edit-cancel-btn').addEventListener('click', exitRecipeEditMode);
-  document.getElementById('recipe-edit-save-btn').addEventListener('click', () => {
+  recipeEditSaveBtn.addEventListener('click', () => {
+    if (recipeCreateMode) { openRecipeModal(); return; } // 新規作成中は、名前を入力するダイアログへ
     if (editingRecipeIndex == null || !recipes[editingRecipeIndex]) return;
     const name = recipes[editingRecipeIndex].name;
     const recipe = finalizeRecipe(!!recipes[editingRecipeIndex].ratio);
@@ -2147,9 +2172,8 @@
   });
 
   document.getElementById('open-recipe-create-btn').addEventListener('click', () => {
-    exitRecipeEditMode();
-    setView('log-form');
-    showToast('抽出方法を設定して「この設定をレシピとして保存」で登録できます');
+    enterRecipeCreateMode();
+    showToast('抽出方法を設定して「レシピとして保存」を押してください');
   });
 
   renderRecipeGrid();
