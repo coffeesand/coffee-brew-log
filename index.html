@@ -1697,6 +1697,8 @@
   var TOMB_KEY = 'brewLog.deleted';
   var RECIPES_TS_KEY = 'brewLog.recipesTs';
   var syncReady = false, syncTimer = null;
+  var syncDeferred = false; // レシピ作成・編集中などの「作業中」に同期を見送ったか（作業が終わったら再開する）
+  function resumeDeferredSync() { if (syncDeferred && typeof syncBusy === 'function' && !syncBusy()) { syncDeferred = false; scheduleSync(); } }
   function loadTombs() { try { return JSON.parse(localStorage.getItem(TOMB_KEY) || '{}'); } catch (e) { return {}; } }
   function stableNoTs(o) { var c = Object.assign({}, o); delete c._ts; return JSON.stringify(c); }
   // Saves a list of records that have ids; stamps update times and records deletions so other devices can follow.
@@ -2089,6 +2091,7 @@
     recipeCreateMode = false;
     recipeEditBanner.hidden = true;
     updateRecipeModeUi();
+    resumeDeferredSync();
   }
   function updateRecipeModeUi() {
     const view = document.getElementById('view-log-form');
@@ -2125,7 +2128,7 @@
     renderRecipeSelect();
     renderRecipeGrid();
     exitRecipeEditMode();
-    showToast('レシピを更新しました');
+    showToast('レシピ「' + name + '」を更新しました：' + recipeSummary(recipe), 5000);
   });
 
   recipeSelect.addEventListener('change', () => {
@@ -2182,6 +2185,17 @@
     }
     return recipe;
   }
+  // 保存した内容を一言で表す（保存直後のトーストに出して、意図と違う保存になっていないか確認できるようにする）
+  function recipeSummary(r) {
+    const mode = recipeModeOf(r);
+    const parts = [];
+    if (mode === 'dose-water') parts.push(`粉${r.dose}g・湯${r.beverageVolume}cc`);
+    else if (mode === 'water-ratio') parts.push(`湯${r.beverageVolume}cc・レシオ1:${r.ratio}`);
+    else if (mode === 'dose-ratio') parts.push(`粉${r.dose}g・レシオ1:${r.ratio}`);
+    else parts.push(`レシオ1:${r.ratio}`);
+    if (r.pours && r.pours.length) parts.push(`${r.pours.length}投（${r.pours.map(p => p.amount).join(' / ')}${r.pourUnit === 'percent' ? '%' : 'g'}）`);
+    return parts.join('・');
+  }
   // 現在の入力状態（直近に入力した2項目）から、保存する組み合わせの初期値を決める
   function modeFromLinkOrder() {
     const key = [...linkOrder].sort().join('+');
@@ -2227,7 +2241,7 @@
     recipeSelect.value = String(recipes.length - 1);
     deleteRecipeBtn.hidden = false;
     closeRecipeModal();
-    showToast('レシピを保存しました');
+    showToast('レシピ「' + name + '」を保存しました：' + recipeSummary(recipe), 5000);
   });
 
   // ---------- Recipe management page: browse, reuse, edit, delete saved recipes ----------
@@ -2919,24 +2933,27 @@
     trackSave('beans', BEANS_KEY, beans);
   }
   let beans = loadBeans() || [];
-  // Migration safety net for beans saved before ids existed (needed for delete-by-id).
-  let beansNeedResave = false;
-  beans.forEach(b => { if (!b.id) { b.id = 'bean' + Date.now() + Math.random().toString(36).slice(2); beansNeedResave = true; } });
-  // 精製方法の英語表記（Washed など）を日本語表記に統一する。産地欄（"国 / 精製方法"）の末尾も合わせて直す
+  // 豆データの整形: ①idの無い古いデータにidを付ける ②精製方法の英語表記（Washed など）を日本語表記に統一する
+  //（産地欄 "国 / 精製方法" の末尾も合わせて直す）。起動時と、同期で他端末の更新を取り込んだ後の両方で実行する
   const PROCESS_JA = { washed: 'ウォッシュド', natural: 'ナチュラル', honey: 'ハニー', anaerobic: 'アナエロビック' };
   const jaProcess = (p) => (p && PROCESS_JA[String(p).trim().toLowerCase()]) || p;
-  beans.forEach(b => {
-    const jp = jaProcess(b.process);
-    if (b.process && jp !== b.process) {
-      if (typeof b.origin === 'string' && b.origin.endsWith(b.process)) b.origin = b.origin.slice(0, -b.process.length) + jp;
-      b.process = jp;
-      beansNeedResave = true;
-    } else if (b.process === undefined && typeof b.origin === 'string') {
-      const m = b.origin.match(/^(.*\s\/\s)(washed|natural|honey|anaerobic)$/i);
-      if (m) { b.origin = m[1] + PROCESS_JA[m[2].toLowerCase()]; beansNeedResave = true; }
-    }
-  });
-  if (beansNeedResave) saveBeansToStorage();
+  function normalizeBeans() {
+    let changed = false;
+    beans.forEach(b => {
+      if (!b.id) { b.id = 'bean' + Date.now() + Math.random().toString(36).slice(2); changed = true; }
+      const jp = jaProcess(b.process);
+      if (b.process && jp !== b.process) {
+        if (typeof b.origin === 'string' && b.origin.endsWith(b.process)) b.origin = b.origin.slice(0, -b.process.length) + jp;
+        b.process = jp;
+        changed = true;
+      } else if (b.process === undefined && typeof b.origin === 'string') {
+        const m = b.origin.match(/^(.*\s\/\s)(washed|natural|honey|anaerobic)$/i);
+        if (m) { b.origin = m[1] + PROCESS_JA[m[2].toLowerCase()]; changed = true; }
+      }
+    });
+    return changed;
+  }
+  if (normalizeBeans()) saveBeansToStorage();
 
   // Roast age is computed from the stored roast date at render time,
   // so it keeps aging correctly instead of freezing at save time.
@@ -3512,11 +3529,11 @@
   // ---------- Toast ----------
   const toastEl = document.getElementById('toast');
   let toastTimer = null;
-  function showToast(message) {
+  function showToast(message, ms) {
     toastEl.textContent = message;
     toastEl.classList.add('visible');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastEl.classList.remove('visible'), 2600);
+    toastTimer = setTimeout(() => toastEl.classList.remove('visible'), ms || 2600);
   }
 
   // ---------- 確認ポップアップ（ブラウザ標準の confirm の代わり） ----------
@@ -3577,7 +3594,7 @@
   // ---------- モーダル表示中は背景のスクロールを止める ----------
   (function initScrollLock() {
     const overlays = Array.from(document.querySelectorAll('.modal-overlay'));
-    const update = () => document.documentElement.classList.toggle('modal-open', overlays.some((el) => !el.hidden));
+    const update = () => { document.documentElement.classList.toggle('modal-open', overlays.some((el) => !el.hidden)); resumeDeferredSync(); };
     const obs = new MutationObserver(update);
     overlays.forEach((el) => obs.observe(el, { attributes: true, attributeFilter: ['hidden'] }));
     update();
@@ -4087,8 +4104,8 @@
   const isSeed = (x) => String(x.id).startsWith('seed-');
   const readLocal = (key) => { try { const v = JSON.parse(localStorage.getItem(key)); return Array.isArray(v) ? v : []; } catch { return []; } };
 
-  function canon(d) {
-    const out = { recipes: d.recipes, recipesTs: d.recipesTs };
+  function canon(d, ignoreTs) {
+    const out = ignoreTs ? { recipes: d.recipes } : { recipes: d.recipes, recipesTs: d.recipesTs };
     ID_LISTS.forEach(([name]) => { out[name] = [...d[name]].sort((a, b) => (a.id < b.id ? -1 : 1)); });
     const dl = {};
     Object.keys(d.deleted).sort().forEach((k) => { dl[k] = d.deleted[k]; });
@@ -4129,7 +4146,8 @@
     return m;
   }
   function applyMerged(m) {
-    const changed = canon(localSnapshot()) !== canon(m);
+    // 中身が変わったかどうかだけを見る（レシピの更新時刻だけが違う場合は「変更なし」）
+    const changed = canon(localSnapshot(), true) !== canon(m, true);
     ID_LISTS.forEach(([name, key]) => {
       const seeds = readLocal(key).filter(isSeed);
       localStorage.setItem(key, JSON.stringify(m[name].concat(seeds)));
@@ -4140,21 +4158,44 @@
     return changed;
   }
 
+  // 作業中（レシピの作成・編集中 / モーダル表示中 / 残量の入力中）は同期を見送る。
+  // 入力中の内容が、他の端末の更新で消えたり、番号ずれで別のレシピを書き換えたりするのを防ぐ
+  function syncBusy() {
+    if (recipeCreateMode || editingRecipeIndex != null) return true;
+    if (document.querySelector('.modal-overlay:not([hidden])')) return true;
+    const ae = document.activeElement;
+    return !!(ae && ae.classList && ae.classList.contains('stock-edit'));
+  }
+  // 他の端末の更新を、ページを再読み込みせずに画面へ反映する（入力途中のフォームには触れない）
+  function applyDataInPlace() {
+    beans = loadBeans() || [];
+    if (normalizeBeans()) saveBeansToStorage();
+    brews = loadBrews() || [];
+    recipes = loadRecipes();
+    quickNotes = loadQuickNotes();
+    refreshDataViews();
+    renderRecipeSelect();
+    renderRecipeGrid();
+    renderQuickNotes();
+  }
+
   let syncing = false, syncQueued = false;
   async function syncNow(manual) {
     if (!syncCfg()) return;
     if (syncing) { syncQueued = true; return; }
+    if (syncBusy()) { syncDeferred = true; return; }
     syncing = true;
     setSyncStatus('同期中…');
-    let needReload = false;
+    let dataChanged = false, deferred = false;
     try {
       for (let attempt = 0; attempt < 3; attempt++) {
         const r = await gh('GET');
         let remote = normRemote({}), sha;
         if (r.status === 200) { const j = await r.json(); sha = j.sha; remote = normRemote(JSON.parse(b64dec(j.content))); }
         else if (r.status !== 404) throw new Error(httpError(r.status));
+        if (syncBusy()) { deferred = true; break; } // 通信中に作業が始まった場合は、反映せず見送る
         const merged = mergeAll(remote);
-        if (applyMerged(merged)) needReload = true;
+        if (applyMerged(merged)) dataChanged = true;
         const out = canon(merged);
         if (r.status === 200 && out === canon(remote)) break;
         const put = await gh('PUT', { message: 'sync ' + new Date().toISOString(), content: b64enc(out), sha });
@@ -4162,8 +4203,11 @@
         if (put.status === 409 || put.status === 422) continue;
         throw new Error(httpError(put.status));
       }
-      setSyncStatus('最終同期: ' + new Date().toLocaleTimeString('ja-JP'));
-      if (manual) showToast('同期しました');
+      if (deferred) { syncDeferred = true; setSyncStatus('作業中のため同期を保留しています'); }
+      else {
+        setSyncStatus('最終同期: ' + new Date().toLocaleTimeString('ja-JP'));
+        if (manual) showToast('同期しました');
+      }
     } catch (e) {
       setSyncStatus('同期エラー: ' + e.message);
       if (manual) showToast('同期に失敗しました');
@@ -4171,12 +4215,9 @@
       syncing = false;
       if (syncQueued) { syncQueued = false; scheduleSync(); }
     }
-    if (needReload) {
-      const ae = document.activeElement;
-      const typing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
-      const last = Number(sessionStorage.getItem('brewLog.lastReload') || 0);
-      if (!typing && Date.now() - last > 30000) { sessionStorage.setItem('brewLog.lastReload', String(Date.now())); location.reload(); }
-      else showToast('他の端末の更新があります。再読み込みすると反映されます');
+    if (dataChanged) {
+      applyDataInPlace(); // 再読み込みはしない
+      if (!manual) showToast('他の端末の更新を反映しました');
     }
   }
 
