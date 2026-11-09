@@ -349,6 +349,7 @@
   .detail-note { padding: 7px 0; border-bottom: 1px solid var(--gridline); font-size: 13px; }
   .detail-note .detail-label { color: var(--text-secondary); margin-bottom: 4px; }
   .detail-note .detail-note-text { white-space: pre-wrap; word-break: break-word; line-height: 1.7; }
+  .recipe-meta-row .recipe-pours { text-align: right; word-break: break-word; margin-left: 12px; }
   .recipe-note {
     margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--gridline);
     font-size: 12px; color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap; word-break: break-word;
@@ -1228,6 +1229,13 @@
             <div class="method-group active" data-method-group="drip">
               <div class="field-grid" style="margin-top:12px;">
                 <div class="field"><label>注湯回数 (投)</label><input type="number" id="pour-count" value="3" min="1" max="10" /></div>
+                <div class="field f-pour-mode">
+                  <label>注湯量の入力方式</label>
+                  <div class="method-tabs" id="pour-mode-toggle" style="margin-bottom:0;">
+                    <button class="method-tab" type="button" data-pmode="each" aria-pressed="true">各投の量</button>
+                    <button class="method-tab" type="button" data-pmode="cumulative" aria-pressed="false">累計</button>
+                  </div>
+                </div>
                 <div class="field f-pour-unit">
                   <label>注湯量の単位</label>
                   <div class="method-tabs" id="pour-unit-toggle" style="margin-bottom:0;">
@@ -1864,6 +1872,14 @@
   // for ratio-only recipes (see below). Actual brew records always save
   // absolute grams (see captureBrew) regardless of which unit was used to type them in.
   let pourUnit = 'g';
+  // 入力方式: false=各投の量（1投目20%・2投目20%…）/ true=累計（1投目で20%・2投目までで40%…）。
+  // 内部の保存値は常に「各投の量」。累計は入力・表示のしかたを切り替えるだけ（レシピには方式も保存する）
+  let pourCumulative = false;
+  const pourModeButtons = document.querySelectorAll('#pour-mode-toggle .method-tab');
+  const r1 = (n) => Math.round(n * 10) / 10;
+  function syncPourModeButtons() {
+    pourModeButtons.forEach(b => b.setAttribute('aria-pressed', String((b.dataset.pmode === 'cumulative') === pourCumulative)));
+  }
 
   function formatMinSec(totalSeconds) {
     const m = Math.floor(totalSeconds / 60);
@@ -1871,12 +1887,24 @@
     return m + ':' + String(s).padStart(2, '0');
   }
 
+  // 各投の量として返す（累計入力のときは、前の投との差に直す）
   function collectPourValues() {
-    return [...pourRowsEl.querySelectorAll('.pour-row')].map((row, i) => ({
-      interval: i === 0 ? 0 : (parseFloat(row.querySelector('.pour-interval')?.value) || 0),
-      amount: parseFloat(row.querySelector('.pour-amount').value) || 0,
-      memo: row.querySelector('.pour-note').value,
-    }));
+    let prevTyped = 0;
+    return [...pourRowsEl.querySelectorAll('.pour-row')].map((row, i) => {
+      const typed = parseFloat(row.querySelector('.pour-amount').value) || 0;
+      const amount = pourCumulative ? Math.max(0, r1(typed - prevTyped)) : typed;
+      prevTyped = typed;
+      return {
+        interval: i === 0 ? 0 : (parseFloat(row.querySelector('.pour-interval')?.value) || 0),
+        amount,
+        memo: row.querySelector('.pour-note').value,
+      };
+    });
+  }
+  // 各投の量 → 画面に出す値（累計入力のときは、足し上げた値）
+  function pourDisplayAmounts(perPour, cumulative) {
+    let run = 0;
+    return perPour.map(a => { run += a; return cumulative ? r1(run) : a; });
   }
 
   function pourAmountGrams(amount) {
@@ -1900,7 +1928,7 @@
     const show = pourUnit === 'percent' && document.getElementById('view-log-form').classList.contains('recipe-mode');
     pourPercentTotalEl.hidden = !show;
     if (!show) return;
-    const sum = [...pourRowsEl.querySelectorAll('.pour-amount')].reduce((t, el) => t + (parseFloat(el.value) || 0), 0);
+    const sum = collectPourValues().reduce((t, p) => t + p.amount, 0);
     const rounded = Math.round(sum * 10) / 10;
     const off = Math.abs(rounded - 100) > 0.5;
     pourPercentTotalEl.textContent = `注湯量の合計: ${rounded}%` + (off ? '（100%になるよう調整してください）' : '');
@@ -1909,12 +1937,18 @@
 
   function buildPourRows(count, preserved) {
     pourRowsEl.innerHTML = '';
-    const amountLabel = pourUnit === 'percent' ? '注湯量 (%)' : '注湯量 (g)';
+    const amountLabel = (pourCumulative ? '累計 ' : '注湯量 ') + (pourUnit === 'percent' ? '(%)' : '(g)');
+    // preserved は「各投の量」。累計入力のときは、足し上げて表示する
+    const perAmounts = [];
+    for (let i = 0; i < count; i++) {
+      const pv = preserved && preserved[i];
+      perAmounts.push(pv ? pv.amount : (pourUnit === 'percent' ? Math.round((100 / count) * 10) / 10 : Math.round((parseFloat(beverageInput.value) || 240) / count)));
+    }
+    const shownAmounts = pourDisplayAmounts(perAmounts, pourCumulative);
     for (let i = 0; i < count; i++) {
       const prev = preserved && preserved[i];
       const defaultInterval = prev ? prev.interval : 45;
-      const defaultAmount = prev ? prev.amount
-        : (pourUnit === 'percent' ? Math.round((100 / count) * 10) / 10 : Math.round((parseFloat(beverageInput.value) || 240) / count));
+      const defaultAmount = shownAmounts[i];
       const defaultMemo = prev ? prev.memo : '';
       const row = document.createElement('div');
       row.className = 'pour-row';
@@ -1955,6 +1989,15 @@
     recalcTotalBrewTime();
   }
   pourUnitButtons.forEach(btn => btn.addEventListener('click', () => setPourUnit(btn.dataset.unit)));
+  function setPourMode(cumulative) {
+    if (cumulative === pourCumulative) return;
+    const perPour = collectPourValues(); // 切り替え前の方式で「各投の量」に直してから、新しい方式で表示し直す
+    pourCumulative = cumulative;
+    syncPourModeButtons();
+    buildPourRows(perPour.length, perPour);
+    recalcTotalBrewTime();
+  }
+  pourModeButtons.forEach(btn => btn.addEventListener('click', () => setPourMode(btn.dataset.pmode === 'cumulative')));
 
   pourCountInput.addEventListener('input', () => {
     const count = Math.max(1, Math.min(10, parseInt(pourCountInput.value, 10) || 1));
@@ -2042,6 +2085,7 @@
     if (method === 'drip') {
       recipe.pourCount = pourCountInput.value;
       recipe.pourUnit = pourUnit;
+      recipe.pourCumulative = pourCumulative;
       recipe.pours = collectPourValues();
     }
     return recipe;
@@ -2079,6 +2123,8 @@
     });
     if (recipe.method === 'drip' && recipe.pours) {
       pourUnit = recipe.pourUnit || 'g';
+      pourCumulative = !!recipe.pourCumulative;
+      syncPourModeButtons();
       pourUnitButtons.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.unit === pourUnit)));
       pourCountInput.value = recipe.pourCount || recipe.pours.length;
       buildPourRows(recipe.pours.length, recipe.pours);
@@ -2225,7 +2271,7 @@
     else if (mode === 'water-ratio') parts.push(`湯${r.beverageVolume}cc・レシオ1:${r.ratio}`);
     else if (mode === 'dose-ratio') parts.push(`粉${r.dose}g・レシオ1:${r.ratio}`);
     else parts.push(`レシオ1:${r.ratio}`);
-    if (r.pours && r.pours.length) parts.push(`${r.pours.length}投（${r.pours.map(p => p.amount).join(' / ')}${r.pourUnit === 'percent' ? '%' : 'g'}）`);
+    if (r.pours && r.pours.length) parts.push(`${r.pours.length}投（${pourDisplayAmounts(r.pours.map(p => p.amount), !!r.pourCumulative).join(' / ')}${r.pourUnit === 'percent' ? '%' : 'g'}${r.pourCumulative ? '・累計' : ''}）`);
     return parts.join('・');
   }
   // 現在の入力状態（直近に入力した2項目）から、保存する組み合わせの初期値を決める
@@ -2311,6 +2357,7 @@
       <div class="recipe-meta-row"><span>レシオ</span><span>${recipeRatioLabel(recipe)}</span></div>
       <div class="recipe-meta-row"><span>湯温</span><span>${recipe.temp || '—'} ℃</span></div>
       ${recipe.grind ? `<div class="recipe-meta-row"><span>挽き目</span><span>${escapeHtml(recipe.grind)}</span></div>` : ''}
+      ${recipe.pours && recipe.pours.length ? `<div class="recipe-meta-row"><span>注湯</span><span class="recipe-pours">${pourDisplayAmounts(recipe.pours.map(p => p.amount), !!recipe.pourCumulative).join(' → ')}${recipe.pourUnit === 'percent' ? '%' : 'g'}${recipe.pourCumulative ? '（累計）' : ''}</span></div>` : ''}
       ${recipe.technique ? `<div class="recipe-note">${escapeHtml(recipe.technique)}</div>` : ''}
       <div class="recipe-card-actions">
         <button class="primary-btn" type="button" data-use-recipe="${index}">このレシピで記録する</button>
@@ -3631,7 +3678,7 @@
   // ---------- 新しい版の検知 ----------
   // 開きっぱなしの古い画面が、古いデータで新しいデータを上書きしてしまうのを防ぐため、
   // 新しい版が公開されたら画面上に知らせる（sw.js の CACHE_NAME と同じ値にそろえること）
-  const APP_BUILD = 'brew-log-v27';
+  const APP_BUILD = 'brew-log-v28';
   async function checkForNewVersion() {
     try {
       const res = await fetch('sw.js', { cache: 'no-store' });
