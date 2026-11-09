@@ -1223,7 +1223,6 @@
               <div class="field f-ratio"><label>レシオ (粉 1 : 湯)</label><input type="number" id="ratio-input" step="0.1" min="0" inputmode="decimal" placeholder="例: 16" /></div>
               <div class="field"><label>湯温 (℃)</label><input type="number" id="temp-input" value="92" /></div>
               <div class="field"><label>挽き目</label><input type="text" id="grind-input" placeholder="例: Comandante 22クリック" /></div>
-              <div class="field"><label>落ち切り時間（任意）</label><input type="text" id="finish-time" inputmode="numeric" autocomplete="off" placeholder="例: 2:45（空欄でもOK）" /></div>
             </div>
 
             <p class="ratio-link-hint">粉量・湯量・レシオのうち、直近に入力した2つから残りの1つが自動で計算されます（例: 湯量とレシオを入れると粉量が出ます）</p>
@@ -1248,9 +1247,6 @@
               </div>
               <div class="pour-table" id="pour-rows"></div>
               <p class="pour-percent-total" id="pour-percent-total" hidden></p>
-              <div class="yield-result" style="margin-top:12px;">
-                <div>トータル抽出時間: <b id="total-brew-time-output">--</b></div>
-              </div>
             </div>
             <div class="method-group" data-method-group="espresso">
               <div class="field-grid" style="margin-top:12px;">
@@ -1292,6 +1288,10 @@
               <div class="field-grid" style="margin-top:12px;">
                 <div class="field"><label>浸漬時間 (時間)</label><input type="number" data-field="steep-hours" value="12" /></div>
               </div>
+            </div>
+
+            <div class="field-grid" style="margin-top:12px;">
+              <div class="field"><label>落ち切り時間（任意）</label><input type="text" id="finish-time" inputmode="numeric" autocomplete="off" placeholder="例: 2:45（空欄でもOK）" /></div>
             </div>
           </div>
 
@@ -1867,7 +1867,6 @@
   // ---------- Hand-drip pour-by-pour recipe ----------
   const pourCountInput = document.getElementById('pour-count');
   const pourRowsEl = document.getElementById('pour-rows');
-  const totalBrewTimeOutput = document.getElementById('total-brew-time-output');
   const pourUnitButtons = document.querySelectorAll('#pour-unit-toggle .method-tab');
   // "%" stores each pour as a share of the total 湯量 instead of an absolute
   // weight, so the same pour schedule keeps its shape at any dose — useful
@@ -1969,12 +1968,6 @@
     updatePercentTotal();
   }
 
-  function recalcTotalBrewTime() {
-    const values = collectPourValues();
-    if (!values.length) { totalBrewTimeOutput.textContent = '--'; return; }
-    const totalSeconds = values.reduce((sum, v) => sum + v.interval, 0);
-    totalBrewTimeOutput.textContent = `${formatMinSec(totalSeconds)}（${totalSeconds}秒）`;
-  }
 
   function setPourUnit(newUnit) {
     if (newUnit === pourUnit) return;
@@ -1988,7 +1981,6 @@
     pourUnit = newUnit;
     pourUnitButtons.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.unit === newUnit)));
     buildPourRows(converted.length, converted);
-    recalcTotalBrewTime();
   }
   pourUnitButtons.forEach(btn => btn.addEventListener('click', () => setPourUnit(btn.dataset.unit)));
   function setPourMode(cumulative) {
@@ -1997,7 +1989,6 @@
     pourCumulative = cumulative;
     syncPourModeButtons();
     buildPourRows(perPour.length, perPour);
-    recalcTotalBrewTime();
   }
   pourModeButtons.forEach(btn => btn.addEventListener('click', () => setPourMode(btn.dataset.pmode === 'cumulative')));
 
@@ -2005,15 +1996,12 @@
     const count = Math.max(1, Math.min(10, parseInt(pourCountInput.value, 10) || 1));
     const preserved = collectPourValues();
     buildPourRows(count, preserved);
-    recalcTotalBrewTime();
   });
   pourRowsEl.addEventListener('input', (e) => {
-    if (e.target.matches('.pour-interval')) recalcTotalBrewTime();
     if (e.target.matches('.pour-amount')) { updatePourHints(); updatePercentTotal(); }
   });
 
   buildPourRows(parseInt(pourCountInput.value, 10) || 3, null);
-  recalcTotalBrewTime();
   recalcYield();
 
   // ---------- Recipes: save the current brewing parameters and reload them later ----------
@@ -2160,7 +2148,6 @@
       pourCountInput.value = recipe.pourCount || recipe.pours.length;
       buildPourRows(recipe.pours.length, recipe.pours);
     }
-    recalcTotalBrewTime();
     recalcYield();
   }
 
@@ -3712,7 +3699,7 @@
   // ---------- 新しい版の検知 ----------
   // 開きっぱなしの古い画面が、古いデータで新しいデータを上書きしてしまうのを防ぐため、
   // 新しい版が公開されたら画面上に知らせる（sw.js の CACHE_NAME と同じ値にそろえること）
-  const APP_BUILD = 'brew-log-v29';
+  const APP_BUILD = 'brew-log-v30';
   async function checkForNewVersion() {
     try {
       const res = await fetch('sw.js', { cache: 'no-store' });
@@ -4174,7 +4161,6 @@
       pourCountInput.value = b.pours.length;
       buildPourRows(b.pours.length, b.pours);
     }
-    recalcTotalBrewTime();
     refreshLinked();
   }
 
