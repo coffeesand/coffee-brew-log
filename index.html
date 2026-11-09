@@ -345,6 +345,7 @@
   }
   .detail-row .detail-label { color: var(--text-secondary); flex-shrink: 0; }
   .detail-row .detail-value { text-align: right; word-break: break-word; }
+  #finish-time.invalid { border-color: var(--status-critical); }
   .technique-hint { font-size: 11px; color: var(--text-muted); }
   .detail-note { padding: 7px 0; border-bottom: 1px solid var(--gridline); font-size: 13px; }
   .detail-note .detail-label { color: var(--text-secondary); margin-bottom: 4px; }
@@ -1222,6 +1223,7 @@
               <div class="field f-ratio"><label>レシオ (粉 1 : 湯)</label><input type="number" id="ratio-input" step="0.1" min="0" inputmode="decimal" placeholder="例: 16" /></div>
               <div class="field"><label>湯温 (℃)</label><input type="number" id="temp-input" value="92" /></div>
               <div class="field"><label>挽き目</label><input type="text" id="grind-input" placeholder="例: Comandante 22クリック" /></div>
+              <div class="field"><label>落ち切り時間（任意）</label><input type="text" id="finish-time" inputmode="numeric" autocomplete="off" placeholder="例: 2:45（空欄でもOK）" /></div>
             </div>
 
             <p class="ratio-link-hint">粉量・湯量・レシオのうち、直近に入力した2つから残りの1つが自動で計算されます（例: 湯量とレシオを入れると粉量が出ます）</p>
@@ -2067,6 +2069,33 @@
 
   const techniqueInput = document.getElementById('technique-note'); // 抽出メモ（注ぎ方など）。レシピ・記録の両方に保存
 
+  // 落ち切り時間（任意）。「2:45」「2分45秒」「165」（秒）などで入力でき、空欄なら未設定。内部は秒で保存する
+  const finishInput = document.getElementById('finish-time');
+  function parseFinishTime(text) {
+    const t = String(text || '').trim().replace(/[０-９：]/g, c => c === '：' ? ':' : String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+    if (!t) return { ok: true, seconds: null };
+    let m;
+    if ((m = t.match(/^(\d+):([0-5]?\d)$/))) return { ok: true, seconds: +m[1] * 60 + +m[2] };
+    if ((m = t.match(/^(?:(\d+)\s*(?:分|m|min))?\s*(?:(\d+)\s*(?:秒|s|sec)?)?$/i)) && (m[1] || m[2])) return { ok: true, seconds: +(m[1] || 0) * 60 + +(m[2] || 0) };
+    return { ok: false, seconds: null };
+  }
+  function formatFinishTime(sec) {
+    if (sec == null || sec === '' || !(Number(sec) >= 0)) return '';
+    const n = Math.round(Number(sec));
+    return Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0');
+  }
+  function readFinishSeconds() { // 隠している／空欄／形式不正のときは seconds が null。ok=false は形式不正
+    if (isFieldHidden('finish')) return { ok: true, seconds: null };
+    return parseFinishTime(finishInput.value);
+  }
+  finishInput.addEventListener('input', () => finishInput.classList.toggle('invalid', !parseFinishTime(finishInput.value).ok));
+  finishInput.addEventListener('blur', () => { // 入力を m:ss にそろえる
+    const r = parseFinishTime(finishInput.value);
+    if (r.ok && r.seconds != null) finishInput.value = formatFinishTime(r.seconds);
+  });
+  function setFinishInput(sec) { finishInput.value = formatFinishTime(sec); finishInput.classList.remove('invalid'); }
+  const FINISH_ERROR = '落ち切り時間の形式が正しくありません（例: 2:45）';
+
   function captureRecipe() {
     const method = activeMethod();
     const recipe = {
@@ -2076,6 +2105,7 @@
       temp: isFieldHidden('temp') ? '' : tempInput.value,
       grind: isFieldHidden('grind') ? '' : grindInput.value,
       technique: isFieldHidden('technique') ? '' : techniqueInput.value.trim(),
+      finishSeconds: readFinishSeconds().seconds,
       methodFields: {},
     };
     document.querySelectorAll(`[data-method-group="${method}"] [data-field]`).forEach(el => {
@@ -2117,6 +2147,7 @@
     tempInput.value = recipe.temp;
     grindInput.value = recipe.grind;
     techniqueInput.value = recipe.technique || '';
+    setFinishInput(recipe.finishSeconds);
     Object.entries(recipe.methodFields || {}).forEach(([key, val]) => {
       const el = document.querySelector(`[data-method-group="${recipe.method}"] [data-field="${key}"]`);
       if (el) el.value = val;
@@ -2198,6 +2229,7 @@
     if (recipeCreateMode) { openRecipeModal(); return; } // 新規作成中は、名前を入力するダイアログへ
     if (editingRecipeIndex == null || !recipes[editingRecipeIndex]) return;
     const name = recipes[editingRecipeIndex].name;
+    if (!readFinishSeconds().ok) { finishInput.focus(); showToast(FINISH_ERROR); return; }
     const mode = recipeFormMode; // バナーで選んでいる保存形式（編集中に変更も可能）
     const recipe = finalizeRecipe(mode);
     if (!recipe) { showToast(ratioNeededMessage(mode)); return; }
@@ -2307,6 +2339,7 @@
   document.getElementById('recipe-modal-save').addEventListener('click', () => {
     const name = recipeNameInput.value.trim();
     if (!name) { recipeNameInput.focus(); return; }
+    if (!readFinishSeconds().ok) { finishInput.focus(); showToast(FINISH_ERROR); return; }
     const mode = (document.querySelector('input[name="recipe-save-mode"]:checked') || {}).value || 'dose-water';
     const recipe = finalizeRecipe(mode);
     if (!recipe) { showToast(ratioNeededMessage(mode)); return; }
@@ -2358,6 +2391,7 @@
       <div class="recipe-meta-row"><span>湯温</span><span>${recipe.temp || '—'} ℃</span></div>
       ${recipe.grind ? `<div class="recipe-meta-row"><span>挽き目</span><span>${escapeHtml(recipe.grind)}</span></div>` : ''}
       ${recipe.pours && recipe.pours.length ? `<div class="recipe-meta-row"><span>注湯</span><span class="recipe-pours">${pourDisplayAmounts(recipe.pours.map(p => p.amount), !!recipe.pourCumulative).join(' → ')}${recipe.pourUnit === 'percent' ? '%' : 'g'}${recipe.pourCumulative ? '（累計）' : ''}</span></div>` : ''}
+      ${recipe.finishSeconds != null && recipe.finishSeconds !== '' ? `<div class="recipe-meta-row"><span>落ち切り</span><span>${formatFinishTime(recipe.finishSeconds)}</span></div>` : ''}
       ${recipe.technique ? `<div class="recipe-note">${escapeHtml(recipe.technique)}</div>` : ''}
       <div class="recipe-card-actions">
         <button class="primary-btn" type="button" data-use-recipe="${index}">このレシピで記録する</button>
@@ -2718,7 +2752,7 @@
       ['bean', 'bean-input'], ['datetime', 'brew-datetime'],
       ['dose', 'dose'], ['beverage', 'beverage-volume'], ['temp', 'temp-input'], ['grind', 'grind-input'],
       ['tds', 'tds'], ['gh', 'gh-input'], ['kh', 'kh-input'], ['mineral', 'mineral-input'],
-      ['evaluationMemo', 'evaluation-memo'], ['technique', 'technique-note'], ['ratio', 'ratio-input'],
+      ['evaluationMemo', 'evaluation-memo'], ['technique', 'technique-note'], ['ratio', 'ratio-input'], ['finish', 'finish-time'],
     ].map(([key, id]) => {
       const input = document.getElementById(id);
       const field = input?.closest('.field');
@@ -3678,7 +3712,7 @@
   // ---------- 新しい版の検知 ----------
   // 開きっぱなしの古い画面が、古いデータで新しいデータを上書きしてしまうのを防ぐため、
   // 新しい版が公開されたら画面上に知らせる（sw.js の CACHE_NAME と同じ値にそろえること）
-  const APP_BUILD = 'brew-log-v28';
+  const APP_BUILD = 'brew-log-v29';
   async function checkForNewVersion() {
     try {
       const res = await fetch('sw.js', { cache: 'no-store' });
@@ -3915,6 +3949,8 @@
     };
     const technique = isFieldHidden('technique') ? '' : techniqueInput.value.trim();
     if (technique) brew.technique = technique;
+    const finish = readFinishSeconds().seconds;
+    if (finish != null) brew.finishSeconds = finish; // 未設定のときは項目ごと保存しない
     // レシオも記録する（粉量・湯量の欄を非表示にしていても、レシオだけは残せるように）
     if (!isFieldHidden('ratio')) {
       const typed = parseFloat(ratioInput.value);
@@ -3966,6 +4002,7 @@
   // After saving, clear the per-brew parts (evaluation, flavor, timestamp) but
   // keep the recipe parameters — the next brew is usually a variation of them.
   function resetPerBrewInputs() {
+    setFinishInput(null); // 落ち切り時間は、その抽出の実測なので記録ごとにリセットする
     wbrcContainer.querySelectorAll('input[type="range"]').forEach(r => {
       r.value = 6;
       r.closest('.wbrc-axis').querySelector('[data-value]').textContent = '6';
@@ -3982,6 +4019,7 @@
   }
 
   function handleSaveBrew(draft) {
+    if (!readFinishSeconds().ok) { finishInput.focus(); showToast(FINISH_ERROR); return; }
     if (!draft && !isFieldHidden('bean') && !beanInput.value.trim()) {
       beanInput.focus();
       showToast('豆の名前を入力してください');
@@ -4052,6 +4090,9 @@
       });
       if (b.totalBrewSeconds != null) html += detailRow('トータル抽出時間', b.totalBrewSeconds + '秒', true);
     }
+    if (b.finishSeconds != null) {
+      html += detailRow('落ち切り時間', formatFinishTime(b.finishSeconds) + '（' + b.finishSeconds + '秒）', true);
+    }
     if (b.technique) {
       html += '<p class="detail-section-title">抽出メモ</p>';
       html += `<div class="detail-note"><div class="detail-note-text">${escapeHtml(b.technique)}</div></div>`;
@@ -4118,6 +4159,7 @@
     if (b.temp != null) tempInput.value = b.temp;
     if (b.grind) grindInput.value = b.grind;
     techniqueInput.value = b.technique || '';
+    setFinishInput(b.finishSeconds);
     if (b.ratio && !(b.dose != null && b.waterVolume != null)) { // 粉量・湯量が記録されていない記録は、レシオから再現する
       ratioInput.value = b.ratio;
       setLinkOrder(['ratio', b.dose != null ? 'dose' : 'water']);
