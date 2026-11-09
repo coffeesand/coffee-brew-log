@@ -344,6 +344,15 @@
   }
   .detail-row .detail-label { color: var(--text-secondary); flex-shrink: 0; }
   .detail-row .detail-value { text-align: right; word-break: break-word; }
+  .technique-hint { font-size: 11px; color: var(--text-muted); }
+  .detail-note { padding: 7px 0; border-bottom: 1px solid var(--gridline); font-size: 13px; }
+  .detail-note .detail-label { color: var(--text-secondary); margin-bottom: 4px; }
+  .detail-note .detail-note-text { white-space: pre-wrap; word-break: break-word; line-height: 1.7; }
+  .recipe-note {
+    margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--gridline);
+    font-size: 12px; color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
   .detail-row .detail-value.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .detail-flavor-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 7px 0; }
   .secondary-btn.danger:hover { color: var(--status-critical); border-color: var(--status-critical); }
@@ -1264,6 +1273,14 @@
             </div>
           </div>
 
+          <div class="form-section" id="technique-block">
+            <div class="field">
+              <label>抽出メモ（注ぎ方・手順など）</label>
+              <textarea id="technique-note" rows="3" placeholder="例: 最初は中心に一点で注ぐ → 外側へ円を描くように回しかけ → 最後はまた中心に戻して注ぐ"></textarea>
+              <span class="technique-hint">レシピ・記録の両方に保存されます</span>
+            </div>
+          </div>
+
           <div class="form-section" id="tds-block" data-setting-block="tds">
             <h2>TDS・抽出収率</h2>
             <div class="field-grid">
@@ -1970,6 +1987,8 @@
     deleteRecipeBtn.hidden = recipeSelect.value === '';
   }
 
+  const techniqueInput = document.getElementById('technique-note'); // 抽出メモ（注ぎ方など）。レシピ・記録の両方に保存
+
   function captureRecipe() {
     const method = activeMethod();
     const recipe = {
@@ -1978,6 +1997,7 @@
       beverageVolume: isFieldHidden('beverage') ? '' : beverageInput.value,
       temp: isFieldHidden('temp') ? '' : tempInput.value,
       grind: isFieldHidden('grind') ? '' : grindInput.value,
+      technique: isFieldHidden('technique') ? '' : techniqueInput.value.trim(),
       methodFields: {},
     };
     document.querySelectorAll(`[data-method-group="${method}"] [data-field]`).forEach(el => {
@@ -2017,6 +2037,7 @@
     refreshLinked();
     tempInput.value = recipe.temp;
     grindInput.value = recipe.grind;
+    techniqueInput.value = recipe.technique || '';
     Object.entries(recipe.methodFields || {}).forEach(([key, val]) => {
       const el = document.querySelector(`[data-method-group="${recipe.method}"] [data-field="${key}"]`);
       if (el) el.value = val;
@@ -2242,6 +2263,7 @@
       <div class="recipe-meta-row"><span>レシオ</span><span>${recipeRatioLabel(recipe)}</span></div>
       <div class="recipe-meta-row"><span>湯温</span><span>${recipe.temp || '—'} ℃</span></div>
       ${recipe.grind ? `<div class="recipe-meta-row"><span>挽き目</span><span>${escapeHtml(recipe.grind)}</span></div>` : ''}
+      ${recipe.technique ? `<div class="recipe-note">${escapeHtml(recipe.technique)}</div>` : ''}
       <div class="recipe-card-actions">
         <button class="primary-btn" type="button" data-use-recipe="${index}">このレシピで記録する</button>
         <button class="secondary-btn" type="button" data-edit-recipe="${index}">編集</button>
@@ -2598,7 +2620,7 @@
       ['bean', 'bean-input'], ['datetime', 'brew-datetime'],
       ['dose', 'dose'], ['beverage', 'beverage-volume'], ['temp', 'temp-input'], ['grind', 'grind-input'],
       ['tds', 'tds'], ['gh', 'gh-input'], ['kh', 'kh-input'], ['mineral', 'mineral-input'],
-      ['evaluationMemo', 'evaluation-memo'],
+      ['evaluationMemo', 'evaluation-memo'], ['technique', 'technique-note'],
     ].map(([key, id]) => {
       const input = document.getElementById(id);
       const field = input?.closest('.field');
@@ -3773,6 +3795,8 @@
       methodFields: {},
       draft: !!draft,
     };
+    const technique = isFieldHidden('technique') ? '' : techniqueInput.value.trim();
+    if (technique) brew.technique = technique;
     document.querySelectorAll(`[data-method-group="${method}"] [data-field]`).forEach(el => {
       const key = `detail:${method}:${el.dataset.field}`;
       if (el.value !== '' && !isFieldHidden(key)) brew.methodFields[el.dataset.field] = el.value;
@@ -3902,6 +3926,10 @@
       });
       if (b.totalBrewSeconds != null) html += detailRow('トータル抽出時間', b.totalBrewSeconds + '秒', true);
     }
+    if (b.technique) {
+      html += '<p class="detail-section-title">抽出メモ</p>';
+      html += `<div class="detail-note"><div class="detail-note-text">${escapeHtml(b.technique)}</div></div>`;
+    }
     if (b.tds != null || b.yield != null || b.water) {
       html += '<p class="detail-section-title">計測</p>';
       html += detailRow('TDS', b.tds != null ? b.tds.toFixed(2) + ' %' : null, true);
@@ -3963,6 +3991,7 @@
     if (b.waterVolume != null) beverageInput.value = b.waterVolume;
     if (b.temp != null) tempInput.value = b.temp;
     if (b.grind) grindInput.value = b.grind;
+    techniqueInput.value = b.technique || '';
     Object.entries(b.methodFields || {}).forEach(([key, val]) => {
       const el = document.querySelector(`[data-method-group="${b.method}"] [data-field="${key}"]`);
       if (el && val != null) el.value = val;
