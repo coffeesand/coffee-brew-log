@@ -801,6 +801,14 @@
     color: var(--brand);
   }
 
+  .sync-pill {
+    position: fixed; top: 10px; right: 12px; z-index: 12;
+    font-family: inherit; font-size: 11px; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--surface-1); color: var(--text-muted); cursor: pointer;
+  }
+  .sync-pill.warn { color: var(--status-warning); border-color: var(--status-warning); }
+  .sync-pill.bad { color: var(--status-critical); border-color: var(--status-critical); }
+  .sync-pill.ok { color: var(--text-secondary); }
   .update-banner {
     position: fixed; left: 50%; transform: translateX(-50%); top: 12px; z-index: 140;
     display: flex; align-items: center; gap: 12px; padding: 10px 14px;
@@ -1710,6 +1718,8 @@
     </div>
   </div>
 
+  <button class="sync-pill" id="sync-pill" type="button" title="タップで今すぐ同期"></button>
+
   <div class="update-banner" id="update-banner" hidden>
     <span>新しい版があります。更新すると最新の機能・修正が使えます。</span>
     <button type="button" id="update-banner-btn">更新する</button>
@@ -1724,6 +1734,8 @@
   var TOMB_KEY = 'brewLog.deleted';
   var RECIPES_TS_KEY = 'brewLog.recipesTs';
   var syncReady = false, syncTimer = null;
+  var syncDirty = false; // この端末に、まだ同期先へ送っていない変更があるか
+  var syncState = { lastOk: 0, err: null, syncing: false };
   var syncDeferred = false; // レシピ作成・編集中などの「作業中」に同期を見送ったか（作業が終わったら再開する）
   var localReloadPending = false; // 同じ端末の別タブがデータを書き換えたが、作業中なので画面への反映を待っている
   function resumeDeferredSync() {
@@ -1749,6 +1761,8 @@
     prevMap.forEach(function (p, id) { if (!ids.has(id)) tombs[name + ':' + id] = now; });
     localStorage.setItem(TOMB_KEY, JSON.stringify(tombs));
     localStorage.setItem(key, JSON.stringify(list));
+    syncDirty = true;
+    if (typeof renderSyncPill === 'function') renderSyncPill();
     scheduleSync();
   }
   function scheduleSync() {
@@ -2156,7 +2170,7 @@
   // ---------- Recipe edit mode: editing an existing recipe's parameters happens
   // in the log form itself (it already has every method-specific field), with a
   // banner tracking which saved recipe is being overwritten on save. ----------
-  let editingRecipeIndex = null;
+  var editingRecipeId = null; // 編集中のレシピの id（一覧の番号は同期で変わりうるので、番号では追わない）
   const recipeEditSaveBtn = document.getElementById('recipe-edit-save-btn');
   const recipeEditBanner = document.getElementById('recipe-edit-banner');
   const recipeEditBannerText = document.getElementById('recipe-edit-banner-text');
@@ -2165,7 +2179,7 @@
     const recipe = recipes[index];
     if (!recipe) return;
     recipeCreateMode = false;
-    editingRecipeIndex = index;
+    editingRecipeId = recipe.id;
     applyRecipe(recipe);
     recipeEditBannerText.textContent = `「${recipe.name}」を編集中`;
     recipeEditSaveBtn.textContent = '変更を保存';
@@ -2184,7 +2198,7 @@
     setView('log-form');
   }
   function exitRecipeEditMode() {
-    editingRecipeIndex = null;
+    editingRecipeId = null;
     recipeCreateMode = false;
     recipeEditBanner.hidden = true;
     updateRecipeModeUi();
@@ -2192,7 +2206,7 @@
   }
   function updateRecipeModeUi() {
     const view = document.getElementById('view-log-form');
-    const active = editingRecipeIndex != null || recipeCreateMode;
+    const active = editingRecipeId != null || recipeCreateMode;
     view.classList.toggle('recipe-mode', active);
     if (active) view.dataset.rmode = recipeFormMode; else delete view.dataset.rmode;
     updatePercentTotal();
@@ -2214,15 +2228,16 @@
   document.getElementById('recipe-edit-cancel-btn').addEventListener('click', exitRecipeEditMode);
   recipeEditSaveBtn.addEventListener('click', () => {
     if (recipeCreateMode) { openRecipeModal(); return; } // 新規作成中は、名前を入力するダイアログへ
-    if (editingRecipeIndex == null || !recipes[editingRecipeIndex]) return;
-    const name = recipes[editingRecipeIndex].name;
+    const editing = recipes.find(r => r.id === editingRecipeId);
+    if (!editing) { if (editingRecipeId != null) { showToast('編集中のレシピが見つかりません（他の端末で削除された可能性があります）'); exitRecipeEditMode(); } return; }
+    const name = editing.name;
     if (!readFinishSeconds().ok) { finishInput.focus(); showToast(FINISH_ERROR); return; }
     const mode = recipeFormMode; // バナーで選んでいる保存形式（編集中に変更も可能）
     const recipe = finalizeRecipe(mode);
     if (!recipe) { showToast(ratioNeededMessage(mode)); return; }
     recipe.name = name;
     // 保存の直前に最新の一覧を読み直し、id で対象を探す（古い画面の一覧で、新しい内容を上書きしないため）
-    const editId = recipes[editingRecipeIndex].id;
+    const editId = editing.id;
     recipes = loadRecipes();
     const at = recipes.findIndex(r => r.id === editId);
     recipe.id = editId;
@@ -2310,7 +2325,7 @@
   function openRecipeModal() {
     recipeNameInput.value = '';
     // 直近に入力した組み合わせを初期選択にする（湯量とレシオを入れたなら「湯量＋レシオ」）
-    const mode = (recipeCreateMode || editingRecipeIndex != null) ? recipeFormMode : modeFromLinkOrder();
+    const mode = (recipeCreateMode || editingRecipeId != null) ? recipeFormMode : modeFromLinkOrder();
     document.querySelectorAll('input[name="recipe-save-mode"]').forEach(r => { r.checked = r.value === mode; });
     recipeModalOverlay.hidden = false;
     recipeNameInput.focus();
@@ -2399,7 +2414,7 @@
     if (!recipes[idx]) return;
     const target = recipes[idx];
     if (!(await askConfirm(`「${target.name}」を削除しますか？`, '削除', true))) return;
-    if (editingRecipeIndex === idx) exitRecipeEditMode();
+    if (editingRecipeId === target.id) exitRecipeEditMode();
     recipes = loadRecipes();
     const at = recipes.findIndex(r => r.id === target.id);
     if (at < 0) return;
@@ -3696,10 +3711,37 @@
     });
   }
 
+  // ---------- 同期の状態表示（画面右上） ----------
+  // 「同期済み」「未送信の変更あり」「同期エラー」「同期オフ」を常に見えるようにする。
+  // これが無いと、片方の端末で同期が止まっていても気づけない
+  function renderSyncPill() {
+    const pillEl = document.getElementById('sync-pill'); // 起動の早い段階（データ整形での保存など）からも呼ばれるため、その都度探す
+    if (!pillEl) return;
+    const c = syncCfg();
+    let text, cls = '', tip = 'タップで今すぐ同期';
+    const hhmm = (t) => new Date(t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+    if (!c) { text = '同期オフ（タップで設定）'; cls = 'warn'; tip = 'この端末はクラウド同期が未設定です。設定画面で接続してください'; }
+    else if (syncState.syncing) text = '同期中…';
+    else if (syncState.err) { text = '⚠ 同期エラー'; cls = 'bad'; tip = syncState.err; }
+    else if (syncDirty) { text = '● 未送信の変更あり'; cls = 'warn'; }
+    else if (syncState.lastOk) {
+      const stale = Date.now() - syncState.lastOk > 10 * 60 * 1000;
+      text = (stale ? '最終同期 ' : '✓ 同期済み ') + hhmm(syncState.lastOk); cls = stale ? 'warn' : 'ok';
+    } else text = '同期待ち…';
+    pillEl.textContent = text; pillEl.title = tip;
+    pillEl.className = 'sync-pill ' + cls;
+  }
+  document.getElementById('sync-pill').addEventListener('click', () => {
+    if (!syncCfg()) { setView('settings'); return; }
+    syncNow(true);
+  });
+  renderSyncPill();
+  setInterval(renderSyncPill, 30000);
+
   // ---------- 新しい版の検知 ----------
   // 開きっぱなしの古い画面が、古いデータで新しいデータを上書きしてしまうのを防ぐため、
   // 新しい版が公開されたら画面上に知らせる（sw.js の CACHE_NAME と同じ値にそろえること）
-  const APP_BUILD = 'brew-log-v30';
+  const APP_BUILD = 'brew-log-v31';
   async function checkForNewVersion() {
     try {
       const res = await fetch('sw.js', { cache: 'no-store' });
@@ -4301,7 +4343,8 @@
   // 作業中（レシピの作成・編集中 / モーダル表示中 / 残量の入力中）は同期を見送る。
   // 入力中の内容が、他の端末の更新で消えたり、番号ずれで別のレシピを書き換えたりするのを防ぐ
   function syncBusy() {
-    if (recipeCreateMode || editingRecipeIndex != null) return true;
+    // ※レシピの作成・編集中は「作業中」に含めない（編集モードを開いたままだと、同期が止まり続けてしまうため）。
+    //   編集中の内容はフォームに残ったまま、一覧だけが更新される
     if (document.querySelector('.modal-overlay:not([hidden])')) return true;
     const ae = document.activeElement;
     return !!(ae && ae.classList && ae.classList.contains('stock-edit'));
@@ -4312,6 +4355,10 @@
     if (normalizeBeans()) saveBeansToStorage();
     brews = loadBrews() || [];
     recipes = loadRecipes();
+    if (editingRecipeId != null && !recipes.some(r => r.id === editingRecipeId)) {
+      exitRecipeEditMode();
+      showToast('編集中のレシピが、他の端末で削除されました');
+    }
     quickNotes = loadQuickNotes();
     refreshDataViews();
     renderRecipeSelect();
@@ -4331,9 +4378,10 @@
   async function syncNow(manual) {
     if (!syncCfg()) return;
     if (syncing) { syncQueued = true; return; }
-    if (syncBusy()) { syncDeferred = true; return; }
     syncing = true;
     setSyncStatus('同期中…');
+    syncState.syncing = true; renderSyncPill();
+    const hadDirty = syncDirty; syncDirty = false; // 同期の最中に入った新しい変更は、再び「未送信」になる
     let dataChanged = false, deferred = false;
     try {
       for (let attempt = 0; attempt < 3; attempt++) {
@@ -4341,9 +4389,10 @@
         let remote = normRemote({}), sha;
         if (r.status === 200) { const j = await r.json(); sha = j.sha; remote = normRemote(JSON.parse(b64dec(j.content))); }
         else if (r.status !== 404) throw new Error(httpError(r.status));
-        if (syncBusy()) { deferred = true; break; } // 通信中に作業が始まった場合は、反映せず見送る
         const merged = mergeAll(remote);
-        if (applyMerged(merged)) dataChanged = true;
+        // 作業中（モーダル表示中など）でも、こちらの変更の「書き込み」は止めない。他端末の更新の「取り込み」だけ、終わってから行う
+        if (syncBusy()) deferred = true;
+        else if (applyMerged(merged)) dataChanged = true;
         const out = canon(merged);
         if (r.status === 200 && out === canon(remote)) break;
         const put = await gh('PUT', { message: 'sync ' + new Date().toISOString(), content: b64enc(out), sha });
@@ -4351,16 +4400,19 @@
         if (put.status === 409 || put.status === 422) continue;
         throw new Error(httpError(put.status));
       }
-      if (deferred) { syncDeferred = true; setSyncStatus('作業中のため同期を保留しています'); }
+      syncState.lastOk = Date.now(); syncState.err = null;
+      if (deferred) { syncDeferred = true; setSyncStatus('最終同期: ' + new Date().toLocaleTimeString('ja-JP') + '（他の端末の更新は、入力が終わったら反映します）'); }
       else {
         setSyncStatus('最終同期: ' + new Date().toLocaleTimeString('ja-JP'));
         if (manual) showToast('同期しました');
       }
     } catch (e) {
+      syncState.err = e.message; syncDirty = syncDirty || hadDirty;
       setSyncStatus('同期エラー: ' + e.message);
-      if (manual) showToast('同期に失敗しました');
+      if (manual) showToast('同期に失敗しました：' + e.message);
     } finally {
       syncing = false;
+      syncState.syncing = false; renderSyncPill();
       if (syncQueued) { syncQueued = false; scheduleSync(); }
     }
     if (dataChanged) {
@@ -4376,7 +4428,7 @@
       const owner = blOwnerEl.value.trim(), repo = blRepoEl.value.trim(), token = blTokenEl.value.trim();
       if (!owner || !repo || !token) { showToast('3項目すべて入力してください'); return; }
       localStorage.setItem(BL_CFG_KEY, JSON.stringify({ owner, repo, token }));
-      syncReady = true;
+      syncReady = true; syncState.err = null; renderSyncPill();
       syncNow(true);
     });
     document.getElementById('bl-sync-now-btn').addEventListener('click', () => {
@@ -4388,7 +4440,7 @@
       localStorage.removeItem(BL_CFG_KEY);
       blTokenEl.value = '';
       syncReady = false;
-      setSyncStatus('未接続');
+      setSyncStatus('未接続'); renderSyncPill();
     });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncNow(); });
     setInterval(() => { if (document.visibilityState === 'visible') syncNow(); }, 60000);
