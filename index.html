@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 <title>コーヒー記録アプリ プロトタイプ</title>
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icon-192.png" />
@@ -54,6 +54,12 @@
 
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100%; }
+  html { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; } /* ピンチ・ダブルタップでの拡大を無効にする（スクロールはそのまま） */
+  html { overflow-x: hidden; } /* body には付けない（付けると body がスクロール領域になり、PC のスクロールの仕組みが変わる） */
+  /* スマホ・タブレットでは、入力欄の文字を16px以上にする。16px未満だと、iPhoneは入力のたびに画面を拡大してしまう */
+  @media (hover: none) and (pointer: coarse), (max-width: 520px) {
+    input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea { font-size: 16px !important; }
+  }
   body {
     font-family: var(--font-body);
     background: var(--page-plane);
@@ -1101,6 +1107,12 @@
   }
 
   @media (max-width: 520px) {
+    /* 画面全体は固定し、中身の領域だけをスクロールさせる。ページ全体がスクロールすると、アドレスバーの伸縮で下のバーが動いて消えて見える */
+    html, body { overflow: hidden; overscroll-behavior: none; }
+    .viz-root { height: 100%; min-height: 0; }
+    .app-shell { height: 100%; height: 100dvh; min-height: 0; }
+    .main-content { min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
+    html.modal-open .main-content { overflow: hidden; }
     .sidebar { display: none; }
     .main-content { padding: 16px 16px 88px; max-width: 100%; }
     .stat-row { grid-template-columns: repeat(2, 1fr); }
@@ -1835,6 +1847,9 @@
   }
   renderIcons();
 
+  // iOS Safari: ピンチ拡大のジェスチャーを無効にする
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(ev => document.addEventListener(ev, e => e.preventDefault(), { passive: false }));
+
   // ---------- Navigation ----------
   const navLinks = document.querySelectorAll('.nav-link');
   const views = document.querySelectorAll('.view');
@@ -1844,6 +1859,7 @@
     views.forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
     navLinks.forEach(l => l.setAttribute('aria-current', l.dataset.view === name ? 'page' : 'false'));
     window.scrollTo(0, 0);
+    const mainEl = document.querySelector('.main-content'); if (mainEl) mainEl.scrollTop = 0; // スマホ表示では、中身の領域がスクロールする
     if (name !== 'log-form' && recipeCreateMode) exitRecipeEditMode();
   }
   navLinks.forEach(link => link.addEventListener('click', () => setView(link.dataset.view)));
@@ -3859,7 +3875,7 @@
   // ---------- 新しい版の検知 ----------
   // 開きっぱなしの古い画面が、古いデータで新しいデータを上書きしてしまうのを防ぐため、
   // 新しい版が公開されたら画面上に知らせる（sw.js の CACHE_NAME と同じ値にそろえること）
-  const APP_BUILD = 'brew-log-v32';
+  const APP_BUILD = 'brew-log-v33';
   async function checkForNewVersion() {
     try {
       const res = await fetch('sw.js', { cache: 'no-store' });
