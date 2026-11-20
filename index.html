@@ -866,6 +866,39 @@
     .bean-card, .recipe-card, .history-table tr, .brew-row { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   }
 
+  /* ---------- 豆の選択欄（一覧から選べて、名前の直接入力もできる） ---------- */
+  .bean-combo { position: relative; }
+  .bean-combo input { width: 100%; padding-right: 40px; }
+  .combo-btn {
+    position: absolute; top: 0; right: 0; height: 100%; width: 38px;
+    background: none; border: none; color: var(--text-secondary); font-size: 14px; cursor: pointer;
+    border-radius: 0 4px 4px 0;
+  }
+  .combo-btn:hover { color: var(--brand); }
+  .combo-list {
+    position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 60;
+    max-height: min(340px, 52vh); overflow-y: auto; overscroll-behavior: contain;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5); padding: 4px;
+  }
+  .combo-list[hidden] { display: none; }
+  .combo-list { width: max(100%, min(380px, calc(100vw - 56px))); right: auto; } /* 欄が狭くても、一覧は読める幅にする */
+  @media (max-width: 520px) { .f-bean { grid-column: 1 / -1; } } /* スマホでは、豆の欄を1行まるごと使う */
+  .combo-group { font-size: 11px; color: var(--text-muted); padding: 8px 10px 4px; letter-spacing: 0.02em; }
+  .combo-item {
+    display: grid; grid-template-columns: 1fr auto; gap: 0 12px; align-items: baseline;
+    padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text-primary);
+  }
+  .combo-item.active { background: var(--brand-tint); }
+  .combo-item:hover { background: var(--brand-tint); }
+  .combo-item .ci-name { font-weight: 600; }
+  .combo-item .ci-stock { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
+  .combo-item .ci-meta { grid-column: 1 / -1; font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+  .combo-item.used .ci-name { color: var(--text-secondary); font-weight: 500; }
+  .combo-free { border-top: 1px solid var(--gridline); margin-top: 4px; padding-top: 10px; }
+  .combo-empty { padding: 10px; font-size: 12px; color: var(--text-muted); }
+  @media (hover: none) { .combo-item { padding: 12px 10px; font-size: 14px; } }
+
   /* ---------- Beans ---------- */
   .bean-grid {
     display: grid;
@@ -1176,10 +1209,9 @@
           <div class="form-section" data-recipe-hide>
             <h2>基本情報</h2>
             <div class="field-grid">
-              <div class="field">
+              <div class="field f-bean">
                 <label>豆</label>
-                <input type="text" id="bean-input" list="bean-datalist" placeholder="豆の名前を選択、または入力" autocomplete="off" />
-                <datalist id="bean-datalist"></datalist>
+                <input type="text" id="bean-input" placeholder="豆を一覧から選ぶ、または名前を入力" autocomplete="off" />
               </div>
               <div class="field">
                 <label>抽出日時</label>
@@ -1670,7 +1702,7 @@
       <div class="modal-body" style="flex-direction: column;">
         <div class="field">
           <label>豆（任意）</label>
-          <input type="text" id="quick-bean-input" list="bean-datalist" placeholder="豆を選択、または入力" autocomplete="off" />
+          <input type="text" id="quick-bean-input" placeholder="豆を一覧から選ぶ、または名前を入力" autocomplete="off" />
         </div>
         <div class="field">
           <label>一言メモ</label>
@@ -3106,21 +3138,104 @@
   }
 
   const beanInput = document.getElementById('bean-input');
-  const beanDatalist = document.getElementById('bean-datalist');
   const beanAlertsEl = document.getElementById('bean-alerts');
   const beanGridActiveEl = document.getElementById('bean-grid-active');
   const beanGridUsedEl = document.getElementById('bean-grid-used');
   const beanGridActiveEmptyEl = document.getElementById('bean-grid-active-empty');
   const beanGridUsedEmptyEl = document.getElementById('bean-grid-used-empty');
 
-  function renderBeanDatalist() {
-    beanDatalist.innerHTML = '';
-    beans.forEach(b => {
-      const option = document.createElement('option');
-      option.value = b.name;
-      beanDatalist.appendChild(option);
+  function renderBeanDatalist() { /* 豆の選択欄は、開くたびに最新の豆一覧から作る（旧: ブラウザ標準の候補リスト） */ }
+
+  // ---------- 豆の選択欄: 一覧から選べて、名前の直接入力もできる ----------
+  // ・欄をタップ/クリックするか ▾ を押すと、豆管理の豆が全部出る（入力済みの名前で絞り込まれない）
+  // ・「使用中の豆」と「以前購入した豆（残量0g）」を分けて表示。入力すると名前・産地・焙煎度で絞り込む
+  // ・一覧にない名前は、そのまま入力して使える
+  function setupBeanCombo(input) {
+    const wrap = document.createElement('div');
+    wrap.className = 'bean-combo';
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'combo-btn'; btn.textContent = '▾';
+    btn.setAttribute('aria-label', '豆を一覧から選ぶ');
+    const list = document.createElement('div');
+    list.className = 'combo-list'; list.setAttribute('role', 'listbox'); list.hidden = true;
+    wrap.appendChild(btn); wrap.appendChild(list);
+    input.setAttribute('role', 'combobox');
+    input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('aria-expanded', 'false');
+
+    let rows = [], hi = -1;
+    const isOpen = () => !list.hidden;
+    function close() { list.hidden = true; hi = -1; input.setAttribute('aria-expanded', 'false'); }
+    function choose(name) {
+      input.value = name;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      close();
+    }
+    function setHi(i) {
+      if (!rows.length) return;
+      hi = (i + rows.length) % rows.length;
+      rows.forEach((r, k) => r.el.classList.toggle('active', k === hi));
+      rows[hi].el.scrollIntoView({ block: 'nearest' });
+    }
+    function render(filter) {
+      const q = (filter || '').trim().toLowerCase();
+      const match = (b) => !q || `${b.name} ${b.origin || ''} ${b.roast || ''}`.toLowerCase().includes(q);
+      const active = beans.filter(b => !beanIsUsedUp(b) && match(b));
+      const used = beans.filter(b => beanIsUsedUp(b) && match(b));
+      list.innerHTML = ''; rows = []; hi = -1;
+      const addGroup = (label, arr, usedFlag) => {
+        if (!arr.length) return;
+        const g = document.createElement('div'); g.className = 'combo-group'; g.textContent = label; list.appendChild(g);
+        arr.forEach(b => {
+          const el = document.createElement('div');
+          el.className = 'combo-item' + (usedFlag ? ' used' : '');
+          el.setAttribute('role', 'option');
+          const name = document.createElement('span'); name.className = 'ci-name'; name.textContent = b.name;
+          const stock = document.createElement('span'); stock.className = 'ci-stock'; stock.textContent = '残り ' + beanRemainingGrams(b) + 'g';
+          const meta = document.createElement('span'); meta.className = 'ci-meta';
+          meta.textContent = [b.origin, b.roast, b.roastDate ? '焙煎 ' + b.roastDate : ''].filter(Boolean).join('・');
+          el.appendChild(name); el.appendChild(stock); if (meta.textContent) el.appendChild(meta);
+          el.addEventListener('click', () => choose(b.name));
+          list.appendChild(el); rows.push({ el, name: b.name });
+        });
+      };
+      addGroup('使用中の豆', active, false);
+      addGroup('以前購入した豆（残量0g）', used, true);
+      if (!rows.length && !q) {
+        const e = document.createElement('div'); e.className = 'combo-empty';
+        e.textContent = '豆管理に豆を登録すると、ここから選べます。名前をそのまま入力してもOKです。'; list.appendChild(e);
+      }
+      const typed = (filter || '').trim();
+      if (typed && !beans.some(b => b.name === typed)) {
+        const el = document.createElement('div');
+        el.className = 'combo-item combo-free'; el.setAttribute('role', 'option');
+        const t = document.createElement('span'); t.className = 'ci-name'; t.textContent = `「${typed}」をそのまま使う`;
+        el.appendChild(t);
+        el.addEventListener('click', () => choose(typed));
+        list.appendChild(el); rows.push({ el, name: typed });
+      }
+    }
+    function open(showAll) {
+      render(showAll ? '' : input.value);
+      list.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+    }
+    input.addEventListener('click', () => { if (!isOpen()) open(true); });
+    input.addEventListener('input', () => { if (document.activeElement === input) open(false); });
+    btn.addEventListener('click', () => { if (isOpen()) close(); else open(true); });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (!isOpen()) open(true); setHi(hi + 1); }
+      else if (e.key === 'ArrowUp' && isOpen()) { e.preventDefault(); setHi(hi - 1); }
+      else if (e.key === 'Enter' && isOpen() && hi >= 0) { e.preventDefault(); choose(rows[hi].name); }
+      else if (e.key === 'Escape' && isOpen()) { e.stopPropagation(); close(); }
+      else if (e.key === 'Tab') close();
     });
+    document.addEventListener('pointerdown', (e) => { if (isOpen() && !wrap.contains(e.target)) close(); });
   }
+  setupBeanCombo(beanInput);
+  setupBeanCombo(quickBeanInput);
 
   function renderBeanAlerts() {
     beanAlertsEl.innerHTML = '';
@@ -3340,7 +3455,10 @@
   renderBeanWidthOpts();
 
   refreshDataViews();
-  if (beans.length) beanInput.value = beans[0].name;
+  { // 記録フォームの豆の初期値: 最後に登録した「使用中」の豆（残量0gの豆は入れない）
+    const cand = beans.filter(b => !beanIsUsedUp(b)).sort((a, b) => (a.id < b.id ? 1 : -1))[0];
+    if (cand) beanInput.value = cand.name;
+  }
 
   // ---------- Add bean modal ----------
   const beanModalOverlay = document.getElementById('bean-modal-overlay');
@@ -3741,7 +3859,7 @@
   // ---------- 新しい版の検知 ----------
   // 開きっぱなしの古い画面が、古いデータで新しいデータを上書きしてしまうのを防ぐため、
   // 新しい版が公開されたら画面上に知らせる（sw.js の CACHE_NAME と同じ値にそろえること）
-  const APP_BUILD = 'brew-log-v31';
+  const APP_BUILD = 'brew-log-v32';
   async function checkForNewVersion() {
     try {
       const res = await fetch('sw.js', { cache: 'no-store' });
